@@ -1,8 +1,6 @@
 # CLAUDE.md
 
 本文档为 Claude Code (claude.ai/code) 在此代码仓库工作提供指导。
-所有回复使用中文。
-新建的文档使用中文命名。
 
 ## 快速开始
 
