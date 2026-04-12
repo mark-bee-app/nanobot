@@ -1,22 +1,22 @@
-## 🔌 OpenAI-Compatible API
+## 🔌 OpenAI 兼容 API
 
-nanobot can expose a minimal OpenAI-compatible endpoint for local integrations:
+nanobot 可为本地集成提供最小化的 OpenAI 兼容端点：
 
 ```bash
 pip install "nanobot-ai[api]"
 nanobot serve
 ```
 
-By default, the API binds to `127.0.0.1:8900`. You can change this in `config.json`.
+默认情况下，API 绑定到 `127.0.0.1:8900`。可在 `config.json` 中修改。
 
-### Behavior
+### 行为
 
-- Session isolation: pass `"session_id"` in the request body to isolate conversations; omit for a shared default session (`api:default`)
-- Single-message input: each request must contain exactly one `user` message
-- Fixed model: omit `model`, or pass the same model shown by `/v1/models`
-- No streaming: `stream=true` is not supported
+- 会话隔离：在请求体中传递 `"session_id"` 以隔离对话；省略则使用共享默认会话（`api:default`）
+- 单消息输入：每个请求必须包含恰好一条 `user` 消息
+- 固定模型：省略 `model`，或传递 `/v1/models` 显示的相同模型
+- 不支持流式：`stream=true` 不支持
 
-### Endpoints
+### 端点
 
 - `GET /health`
 - `GET /v1/models`
@@ -42,7 +42,7 @@ resp = requests.post(
     "http://127.0.0.1:8900/v1/chat/completions",
     json={
         "messages": [{"role": "user", "content": "hi"}],
-        "session_id": "my-session",  # optional: isolate conversation
+        "session_id": "my-session",  # 可选：隔离对话
     },
     timeout=120,
 )
@@ -63,7 +63,7 @@ client = OpenAI(
 resp = client.chat.completions.create(
     model="MiniMax-M2.7",
     messages=[{"role": "user", "content": "hi"}],
-    extra_body={"session_id": "my-session"},  # optional: isolate conversation
+    extra_body={"session_id": "my-session"},  # 可选：隔离对话
 )
 print(resp.choices[0].message.content)
 ```

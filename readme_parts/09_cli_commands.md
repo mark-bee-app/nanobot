@@ -1,58 +1,58 @@
-## 💻 CLI Reference
+## 💻 CLI 命令参考
 
-| Command | Description |
+| 命令 | 描述 |
 |---------|-------------|
-| `nanobot onboard` | Initialize config & workspace at `~/.nanobot/` |
-| `nanobot onboard --wizard` | Launch the interactive onboarding wizard |
-| `nanobot onboard -c <config> -w <workspace>` | Initialize or refresh a specific instance config and workspace |
-| `nanobot agent -m "..."` | Chat with the agent |
-| `nanobot agent -w <workspace>` | Chat against a specific workspace |
-| `nanobot agent -w <workspace> -c <config>` | Chat against a specific workspace/config |
-| `nanobot agent` | Interactive chat mode |
-| `nanobot agent --no-markdown` | Show plain-text replies |
-| `nanobot agent --logs` | Show runtime logs during chat |
-| `nanobot serve` | Start the OpenAI-compatible API |
-| `nanobot gateway` | Start the gateway |
-| `nanobot status` | Show status |
-| `nanobot provider login openai-codex` | OAuth login for providers |
-| `nanobot channels login <channel>` | Authenticate a channel interactively |
-| `nanobot channels status` | Show channel status |
+| `nanobot onboard` | 在 `~/.nanobot/` 初始化配置和工作区 |
+| `nanobot onboard --wizard` | 启动交互式初始化向导 |
+| `nanobot onboard -c <config> -w <workspace>` | 初始化或刷新特定实例的配置和工作区 |
+| `nanobot agent -m "..."` | 与代理聊天 |
+| `nanobot agent -w <workspace>` | 针对特定工作区聊天 |
+| `nanobot agent -w <workspace> -c <config>` | 针对特定工作区/配置聊天 |
+| `nanobot agent` | 交互式聊天模式 |
+| `nanobot agent --no-markdown` | 显示纯文本回复 |
+| `nanobot agent --logs` | 聊天时显示运行日志 |
+| `nanobot serve` | 启动 OpenAI 兼容 API |
+| `nanobot gateway` | 启动网关 |
+| `nanobot status` | 显示状态 |
+| `nanobot provider login openai-codex` | 提供器 OAuth 登录 |
+| `nanobot channels login <channel>` | 交互式渠道认证 |
+| `nanobot channels status` | 显示渠道状态 |
 
-Interactive mode exits: `exit`, `quit`, `/exit`, `/quit`, `:q`, or `Ctrl+D`.
+交互模式退出方式：`exit`、`quit`、`/exit`、`/quit`、`:q` 或 `Ctrl+D`。
 
-## 💬 In-Chat Commands
+## 💬 聊天内命令
 
-These commands work inside chat channels and interactive agent sessions:
+这些命令在聊天渠道和交互式代理会话中有效：
 
-| Command | Description |
+| 命令 | 描述 |
 |---------|-------------|
-| `/new` | Start a new conversation |
-| `/stop` | Stop the current task |
-| `/restart` | Restart the bot |
-| `/status` | Show bot status |
-| `/dream` | Run Dream memory consolidation now |
-| `/dream-log` | Show the latest Dream memory change |
-| `/dream-log <sha>` | Show a specific Dream memory change |
-| `/dream-restore` | List recent Dream memory versions |
-| `/dream-restore <sha>` | Restore memory to the state before a specific change |
-| `/help` | Show available in-chat commands |
+| `/new` | 开始新对话 |
+| `/stop` | 停止当前任务 |
+| `/restart` | 重启 bot |
+| `/status` | 显示 bot 状态 |
+| `/dream` | 立即运行 Dream 内存整合 |
+| `/dream-log` | 显示最新的 Dream 内存变更 |
+| `/dream-log <sha>` | 显示特定 Dream 内存变更 |
+| `/dream-restore` | 列出最近的 Dream 内存版本 |
+| `/dream-restore <sha>` | 将内存恢复到特定变更前的状态 |
+| `/help` | 显示可用的聊天内命令 |
 
 <details>
-<summary><b>Heartbeat (Periodic Tasks)</b></summary>
+<summary><b>心跳（定时任务）</b></summary>
 
-The gateway wakes up every 30 minutes and checks `HEARTBEAT.md` in your workspace (`~/.nanobot/workspace/HEARTBEAT.md`). If the file has tasks, the agent executes them and delivers results to your most recently active chat channel.
+网关每 30 分钟唤醒一次，检查工作区中的 `HEARTBEAT.md`（`~/.nanobot/workspace/HEARTBEAT.md`）。如果文件包含任务，代理会执行并将结果发送到你最近活跃的聊天渠道。
 
-**Setup:** edit `~/.nanobot/workspace/HEARTBEAT.md` (created automatically by `nanobot onboard`):
+**设置：**编辑 `~/.nanobot/workspace/HEARTBEAT.md`（由 `nanobot onboard` 自动创建）：
 
 ```markdown
-## Periodic Tasks
+## 定时任务
 
-- [ ] Check weather forecast and send a summary
-- [ ] Scan inbox for urgent emails
+- [ ] 查看天气预报并发送摘要
+- [ ] 扫描邮箱中的紧急邮件
 ```
 
-The agent can also manage this file itself — ask it to "add a periodic task" and it will update `HEARTBEAT.md` for you.
+代理也可以自行管理此文件 — 让它"添加一个定时任务"，它会为你更新 `HEARTBEAT.md`。
 
-> **Note:** The gateway must be running (`nanobot gateway`) and you must have chatted with the bot at least once so it knows which channel to deliver to.
+> **注意：**网关必须运行（`nanobot gateway`），且你必须至少与 bot 聊过一次，这样它才知道发送到哪个渠道。
 
 </details>

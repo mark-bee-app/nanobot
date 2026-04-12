@@ -1,73 +1,73 @@
-## 🧩 Multiple Instances
+## 🧩 多实例运行
 
-Run multiple nanobot instances simultaneously with separate configs and runtime data. Use `--config` as the main entrypoint. Optionally pass `--workspace` during `onboard` when you want to initialize or update the saved workspace for a specific instance.
+使用独立配置和运行时数据同时运行多个 nanobot 实例。使用 `--config` 作为主入口点。在 `onboard` 时可选传递 `--workspace` 来初始化或更新特定实例的已保存工作区。
 
-### Quick Start
+### 快速开始
 
-If you want each instance to have its own dedicated workspace from the start, pass both `--config` and `--workspace` during onboarding.
+如果你希望每个实例从一开始就拥有独立工作区，在初始化时同时传递 `--config` 和 `--workspace`。
 
-**Initialize instances:**
+**初始化实例：**
 
 ```bash
-# Create separate instance configs and workspaces
+# 创建独立的实例配置和工作区
 nanobot onboard --config ~/.nanobot-telegram/config.json --workspace ~/.nanobot-telegram/workspace
 nanobot onboard --config ~/.nanobot-discord/config.json --workspace ~/.nanobot-discord/workspace
 nanobot onboard --config ~/.nanobot-feishu/config.json --workspace ~/.nanobot-feishu/workspace
 ```
 
-**Configure each instance:**
+**配置每个实例：**
 
-Edit `~/.nanobot-telegram/config.json`, `~/.nanobot-discord/config.json`, etc. with different channel settings. The workspace you passed during `onboard` is saved into each config as that instance's default workspace.
+编辑 `~/.nanobot-telegram/config.json`、`~/.nanobot-discord/config.json` 等，配置不同的渠道设置。你在 `onboard` 时传递的工作区会保存到每个配置中作为该实例的默认工作区。
 
-**Run instances:**
+**运行实例：**
 
 ```bash
-# Instance A - Telegram bot
+# 实例 A - Telegram bot
 nanobot gateway --config ~/.nanobot-telegram/config.json
 
-# Instance B - Discord bot  
+# 实例 B - Discord bot  
 nanobot gateway --config ~/.nanobot-discord/config.json
 
-# Instance C - Feishu bot with custom port
+# 实例 C - 飞书 bot，自定义端口
 nanobot gateway --config ~/.nanobot-feishu/config.json --port 18792
 ```
 
-### Path Resolution
+### 路径解析
 
-When using `--config`, nanobot derives its runtime data directory from the config file location. The workspace still comes from `agents.defaults.workspace` unless you override it with `--workspace`.
+使用 `--config` 时，nanobot 从配置文件位置派生运行时数据目录。工作区仍来自 `agents.defaults.workspace`，除非你用 `--workspace` 覆盖。
 
-To open a CLI session against one of these instances locally:
+要针对某个实例在本地打开 CLI 会话：
 
 ```bash
 nanobot agent -c ~/.nanobot-telegram/config.json -m "Hello from Telegram instance"
 nanobot agent -c ~/.nanobot-discord/config.json -m "Hello from Discord instance"
 
-# Optional one-off workspace override
+# 可选的一次性工作区覆盖
 nanobot agent -c ~/.nanobot-telegram/config.json -w /tmp/nanobot-telegram-test
 ```
 
-> `nanobot agent` starts a local CLI agent using the selected workspace/config. It does not attach to or proxy through an already running `nanobot gateway` process.
+> `nanobot agent` 使用所选工作区/配置启动本地 CLI 代理。它不会附加到或代理已运行的 `nanobot gateway` 进程。
 
-| Component | Resolved From | Example |
+| 组件 | 解析来源 | 示例 |
 |-----------|---------------|---------|
-| **Config** | `--config` path | `~/.nanobot-A/config.json` |
-| **Workspace** | `--workspace` or config | `~/.nanobot-A/workspace/` |
-| **Cron Jobs** | config directory | `~/.nanobot-A/cron/` |
-| **Media / runtime state** | config directory | `~/.nanobot-A/media/` |
+| **配置** | `--config` 路径 | `~/.nanobot-A/config.json` |
+| **工作区** | `--workspace` 或配置 | `~/.nanobot-A/workspace/` |
+| **定时任务** | 配置目录 | `~/.nanobot-A/cron/` |
+| **媒体/运行时状态** | 配置目录 | `~/.nanobot-A/media/` |
 
-### How It Works
+### 工作原理
 
-- `--config` selects which config file to load
-- By default, the workspace comes from `agents.defaults.workspace` in that config
-- If you pass `--workspace`, it overrides the workspace from the config file
+- `--config` 选择加载哪个配置文件
+- 默认情况下，工作区来自该配置中的 `agents.defaults.workspace`
+- 如果你传递 `--workspace`，它会覆盖配置文件中的工作区
 
-### Minimal Setup
+### 最简设置
 
-1. Copy your base config into a new instance directory.
-2. Set a different `agents.defaults.workspace` for that instance.
-3. Start the instance with `--config`.
+1. 将基础配置复制到新实例目录。
+2. 为该实例设置不同的 `agents.defaults.workspace`。
+3. 使用 `--config` 启动实例。
 
-Example config:
+示例配置：
 
 ```json
 {
@@ -89,29 +89,29 @@ Example config:
 }
 ```
 
-Start separate instances:
+启动独立实例：
 
 ```bash
 nanobot gateway --config ~/.nanobot-telegram/config.json
 nanobot gateway --config ~/.nanobot-discord/config.json
 ```
 
-Override workspace for one-off runs when needed:
+需要时可覆盖工作区进行一次性运行：
 
 ```bash
 nanobot gateway --config ~/.nanobot-telegram/config.json --workspace /tmp/nanobot-telegram-test
 ```
 
-### Common Use Cases
+### 常见用途
 
-- Run separate bots for Telegram, Discord, Feishu, and other platforms
-- Keep testing and production instances isolated
-- Use different models or providers for different teams
-- Serve multiple tenants with separate configs and runtime data
+- 为 Telegram、Discord、飞书等平台运行独立 bot
+- 保持测试和生产实例隔离
+- 为不同团队使用不同模型或提供器
+- 为多租户提供独立配置和运行时数据
 
-### Notes
+### 注意事项
 
-- Each instance must use a different port if they run at the same time
-- Use a different workspace per instance if you want isolated memory, sessions, and skills
-- `--workspace` overrides the workspace defined in the config file
-- Cron jobs and runtime media/state are derived from the config directory
+- 各实例同时运行时必须使用不同端口
+- 如需隔离的内存、会话和技能，每个实例使用不同工作区
+- `--workspace` 覆盖配置文件中定义的工作区
+- 定时任务和运行时媒体/状态从配置目录派生

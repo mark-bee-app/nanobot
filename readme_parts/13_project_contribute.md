@@ -1,54 +1,54 @@
-## 📁 Project Structure
+## 📁 项目结构
 
 ```
 nanobot/
-├── agent/          # 🧠 Core agent logic
-│   ├── loop.py     #    Agent loop (LLM ↔ tool execution)
-│   ├── context.py  #    Prompt builder
-│   ├── memory.py   #    Persistent memory
-│   ├── skills.py   #    Skills loader
-│   ├── subagent.py #    Background task execution
-│   └── tools/      #    Built-in tools (incl. spawn)
-├── skills/         # 🎯 Bundled skills (github, weather, tmux...)
-├── channels/       # 📱 Chat channel integrations (supports plugins)
-├── bus/            # 🚌 Message routing
-├── cron/           # ⏰ Scheduled tasks
-├── heartbeat/      # 💓 Proactive wake-up
-├── providers/      # 🤖 LLM providers (OpenRouter, etc.)
-├── session/        # 💬 Conversation sessions
-├── config/         # ⚙️ Configuration
-└── cli/            # 🖥️ Commands
+├── agent/          # 🧠 核心代理逻辑
+│   ├── loop.py     #    代理循环（LLM ↔ 工具执行）
+│   ├── context.py  #    提示构建器
+│   ├── memory.py   #    持久化内存
+│   ├── skills.py   #    技能加载器
+│   ├── subagent.py #    后台任务执行
+│   └── tools/      #    内置工具（含 spawn）
+├── skills/         # 🎯 内置技能（github、天气、tmux...）
+├── channels/       # 📱 聊天渠道集成（支持插件）
+├── bus/            # 🚌 消息路由
+├── cron/           # ⏰ 定时任务
+├── heartbeat/      # 💓 主动唤醒
+├── providers/      # 🤖 LLM 提供器（OpenRouter 等）
+├── session/        # 💬 对话会话
+├── config/         # ⚙️ 配置
+└── cli/            # 🖥️ 命令
 ```
 
-## 🤝 Contribute & Roadmap
+## 🤝 贡献与路线图
 
-PRs welcome! The codebase is intentionally small and readable. 🤗
+欢迎 PR！代码库故意保持小巧可读。🤗
 
-### Branching Strategy
+### 分支策略
 
-| Branch | Purpose |
+| 分支 | 用途 |
 |--------|---------|
-| `main` | Stable releases — bug fixes and minor improvements |
-| `nightly` | Experimental features — new features and breaking changes |
+| `main` | 稳定版本 — bug 修复和小改进 |
+| `nightly` | 实验性功能 — 新功能和破坏性变更 |
 
-**Unsure which branch to target?** See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
+**不确定目标分支？**详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-**Roadmap** — Pick an item and [open a PR](https://github.com/HKUDS/nanobot/pulls)!
+**路线图** — 选择一项并[提交 PR](https://github.com/HKUDS/nanobot/pulls)！
 
-- [ ] **Multi-modal** — See and hear (images, voice, video)
-- [ ] **Long-term memory** — Never forget important context
-- [ ] **Better reasoning** — Multi-step planning and reflection
-- [ ] **More integrations** — Calendar and more
-- [ ] **Self-improvement** — Learn from feedback and mistakes
+- [ ] **多模态** — 看和听（图像、语音、视频）
+- [ ] **长期记忆** — 永不遗忘重要上下文
+- [ ] **更好的推理** — 多步规划和反思
+- [ ] **更多集成** — 日历等
+- [ ] **自我改进** — 从反馈和错误中学习
 
-### Contributors
+### 贡献者
 
 <a href="https://github.com/HKUDS/nanobot/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=HKUDS/nanobot&max=100&columns=12&updated=20260210" alt="Contributors" />
 </a>
 
 
-## ⭐ Star History
+## ⭐ Star 历史
 
 <div align="center">
   <a href="https://star-history.com/#HKUDS/nanobot&Date">
@@ -61,11 +61,11 @@ PRs welcome! The codebase is intentionally small and readable. 🤗
 </div>
 
 <p align="center">
-  <em> Thanks for visiting ✨ nanobot!</em><br><br>
+  <em> 感谢访问 ✨ nanobot!</em><br><br>
   <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.nanobot&style=for-the-badge&color=00d4ff" alt="Views">
 </p>
 
 
 <p align="center">
-  <sub>nanobot is for educational, research, and technical exchange purposes only</sub>
+  <sub>nanobot 仅用于教育、研究和技术交流目的</sub>
 </p>

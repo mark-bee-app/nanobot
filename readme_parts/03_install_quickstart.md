@@ -1,11 +1,11 @@
-## 📦 Install
+## 📦 安装
 
 > [!IMPORTANT]
-> This README may describe features that are available first in the latest source code.
-> If you want the newest features and experiments, install from source.
-> If you want the most stable day-to-day experience, install from PyPI or with `uv`.
+> 本 README 可能描述了最新源代码中首先发布的功能。
+> 如需最新功能和实验性改动，请从源码安装。
+> 如需最稳定的日常体验，请从 PyPI 或使用 `uv` 安装。
 
-**Install from source** (latest features, experimental changes may land here first; recommended for development)
+**从源码安装**（最新功能，实验性改动可能首先在此发布；推荐用于开发）
 
 ```bash
 git clone https://github.com/HKUDS/nanobot.git
@@ -13,19 +13,19 @@ cd nanobot
 pip install -e .
 ```
 
-**Install with [uv](https://github.com/astral-sh/uv)** (stable release, fast)
+**使用 [uv](https://github.com/astral-sh/uv) 安装**（稳定版本，快速）
 
 ```bash
 uv tool install nanobot-ai
 ```
 
-**Install from PyPI** (stable release)
+**从 PyPI 安装**（稳定版本）
 
 ```bash
 pip install nanobot-ai
 ```
 
-### Update to latest version
+### 更新到最新版本
 
 **PyPI / pip**
 
@@ -41,36 +41,36 @@ uv tool upgrade nanobot-ai
 nanobot --version
 ```
 
-**Using WhatsApp?** Rebuild the local bridge after upgrading:
+**使用 WhatsApp？** 升级后重建本地桥接：
 
 ```bash
 rm -rf ~/.nanobot/bridge
 nanobot channels login whatsapp
 ```
 
-## 🚀 Quick Start
+## 🚀 快速开始
 
 > [!TIP]
-> Set your API key in `~/.nanobot/config.json`.
-> Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global)
+> 在 `~/.nanobot/config.json` 中设置 API 密钥。
+> 获取 API 密钥：[OpenRouter](https://openrouter.ai/keys)（全球通用）
 >
-> For other LLM providers, please see the [Providers](#providers) section.
+> 其他 LLM 提供器请参见 [提供器](#providers) 部分。
 >
-> For web search capability setup, please see [Web Search](#web-search).
+> 网络搜索功能设置请参见 [网络搜索](#web-search)。
 
-**1. Initialize**
+**1. 初始化**
 
 ```bash
 nanobot onboard
 ```
 
-Use `nanobot onboard --wizard` if you want the interactive setup wizard.
+如需交互式设置向导，使用 `nanobot onboard --wizard`。
 
-**2. Configure** (`~/.nanobot/config.json`)
+**2. 配置** (`~/.nanobot/config.json`)
 
-Configure these **two parts** in your config (other options have defaults).
+配置以下**两个部分**（其他选项有默认值）。
 
-*Set your API key* (e.g. OpenRouter, recommended for global users):
+*设置 API 密钥*（如 OpenRouter，推荐全球用户）：
 ```json
 {
   "providers": {
@@ -81,7 +81,7 @@ Configure these **two parts** in your config (other options have defaults).
 }
 ```
 
-*Set your model* (optionally pin a provider — defaults to auto-detection):
+*设置模型*（可选固定提供器 — 默认自动检测）：
 ```json
 {
   "agents": {
@@ -93,10 +93,10 @@ Configure these **two parts** in your config (other options have defaults).
 }
 ```
 
-**3. Chat**
+**3. 开始聊天**
 
 ```bash
 nanobot agent
 ```
 
-That's it! You have a working AI agent in 2 minutes.
+搞定！2 分钟即可拥有一个工作的 AI 代理。
