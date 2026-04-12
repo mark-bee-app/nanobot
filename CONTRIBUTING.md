@@ -1,122 +1,121 @@
-# Contributing to nanobot
+# 贡献 nanobot
 
-Thank you for being here.
+感谢你的到来。
 
-nanobot is built with a simple belief: good tools should feel calm, clear, and humane.
-We care deeply about useful features, but we also believe in achieving more with less:
-solutions should be powerful without becoming heavy, and ambitious without becoming
-needlessly complicated.
+nanobot 的构建基于一个简单的信念：好的工具应该让人感到平静、清晰和人性化。
+我们非常重视有用的功能，但我们也相信能够以更少的投入获得更多：
+解决方案应该强大而不笨重，雄心勃勃而不无谓地复杂。
 
-This guide is not only about how to open a PR. It is also about how we hope to build
-software together: with care, clarity, and respect for the next person reading the code.
+本指南不仅关乎如何提交 PR，也关乎我们如何一起构建软件：
+带着细心、清晰和对下一位阅读代码的人的尊重。
 
-## Maintainers
+## 维护者
 
-| Maintainer | Focus |
-|------------|-------|
-| [@re-bin](https://github.com/re-bin) | Project lead, `main` branch |
-| [@chengyongru](https://github.com/chengyongru) | `nightly` branch, experimental features |
+| 维护者 | 职责 |
+|--------|------|
+| [@re-bin](https://github.com/re-bin) | 项目负责人，`main` 分支 |
+| [@chengyongru](https://github.com/chengyongru) | `nightly` 分支，实验性功能 |
 
-## Branching Strategy
+## 分支策略
 
-We use a two-branch model to balance stability and exploration:
+我们使用双分支模型来平衡稳定性和探索性：
 
-| Branch | Purpose | Stability |
-|--------|---------|-----------|
-| `main` | Stable releases | Production-ready |
-| `nightly` | Experimental features | May have bugs or breaking changes |
+| 分支 | 用途 | 稳定性 |
+|------|------|--------|
+| `main` | 稳定版本 | 生产就绪 |
+| `nightly` | 实验性功能 | 可能存在 bug 或破坏性变更 |
 
-### Which Branch Should I Target?
+### 我应该以哪个分支为目标？
 
-**Target `nightly` if your PR includes:**
+**如果你的 PR 包含以下内容，请以 `nightly` 为目标：**
 
-- New features or functionality
-- Refactoring that may affect existing behavior
-- Changes to APIs or configuration
+- 新功能或新特性
+- 可能影响现有行为的重构
+- API 或配置的变更
 
-**Target `main` if your PR includes:**
+**如果你的 PR 包含以下内容，请以 `main` 为目标：**
 
-- Bug fixes with no behavior changes
-- Documentation improvements
-- Minor tweaks that don't affect functionality
+- 没有行为变更的 bug 修复
+- 文档改进
+- 不影响功能的小幅调整
 
-**When in doubt, target `nightly`.** It is easier to move a stable idea from `nightly`
-to `main` than to undo a risky change after it lands in the stable branch.
+**如有疑虑，请以 `nightly` 为目标。** 将一个稳定的想法从 `nightly` 移到 `main`，
+比在稳定分支上撤销一个有风险的变更要容易得多。
 
-### How Does Nightly Get Merged to Main?
+### nightly 如何合并到 main？
 
-We don't merge the entire `nightly` branch. Instead, stable features are **cherry-picked** from `nightly` into individual PRs targeting `main`:
+我们不会合并整个 `nightly` 分支。相反，稳定的功能会通过 **cherry-pick** 从 `nightly` 挑选到各个 targeting `main` 的 PR 中：
 
 ```
-nightly  ──┬── feature A (stable) ──► PR ──► main
-           ├── feature B (testing)
-           └── feature C (stable) ──► PR ──► main
+nightly  ──┬── 功能 A（稳定）──► PR ──► main
+           ├── 功能 B（测试中）
+           └── 功能 C（稳定）──► PR ──► main
 ```
 
-This happens approximately **once a week**, but the timing depends on when features become stable enough.
+这大约**每周**发生一次，但具体时间取决于功能何时足够稳定。
 
-### Quick Summary
+### 快速总结
 
-| Your Change | Target Branch |
-|-------------|---------------|
-| New feature | `nightly` |
-| Bug fix | `main` |
-| Documentation | `main` |
-| Refactoring | `nightly` |
-| Unsure | `nightly` |
+| 你的变更 | 目标分支 |
+|----------|----------|
+| 新功能 | `nightly` |
+| Bug 修复 | `main` |
+| 文档 | `main` |
+| 重构 | `nightly` |
+| 不确定 | `nightly` |
 
-## Development Setup
+## 开发环境设置
 
-Keep setup boring and reliable. The goal is to get you into the code quickly:
+保持简单可靠。目标是让你能够快速进入代码：
 
 ```bash
-# Clone the repository
+# 克隆仓库
 git clone https://github.com/HKUDS/nanobot.git
 cd nanobot
 
-# Install with dev dependencies
+# 安装开发依赖
 pip install -e ".[dev]"
 
-# Run tests
+# 运行测试
 pytest
 
-# Lint code
+# 代码检查
 ruff check nanobot/
 
-# Format code
+# 代码格式化
 ruff format nanobot/
 ```
 
-## Code Style
+## 代码风格
 
-We care about more than passing lint. We want nanobot to stay small, calm, and readable.
+我们关心的不仅仅是通过 lint。我们希望 nanobot 保持小巧、平静和可读。
 
-When contributing, please aim for code that feels:
+在贡献时，请努力让你的代码呈现：
 
-- Simple: prefer the smallest change that solves the real problem
-- Clear: optimize for the next reader, not for cleverness
-- Decoupled: keep boundaries clean and avoid unnecessary new abstractions
-- Honest: do not hide complexity, but do not create extra complexity either
-- Durable: choose solutions that are easy to maintain, test, and extend
+- 简单：优先选择能解决实际问题的最小变更
+- 清晰：为下一位读者优化，而不是追求巧妙
+- 解耦：保持边界清晰，避免不必要的新抽象
+- 诚实：不要隐藏复杂性，但也不要制造额外的复杂性
+- 持久：选择易于维护、测试和扩展的解决方案
 
-In practice:
+在实践中：
 
-- Line length: 100 characters (`ruff`)
-- Target: Python 3.11+
-- Linting: `ruff` with rules E, F, I, N, W (E501 ignored)
-- Async: uses `asyncio` throughout; pytest with `asyncio_mode = "auto"`
-- Prefer readable code over magical code
-- Prefer focused patches over broad rewrites
-- If a new abstraction is introduced, it should clearly reduce complexity rather than move it around
+- 行长度：100 个字符（`ruff`）
+- 目标：Python 3.11+
+- Lint：`ruff` 使用规则 E, F, I, N, W（忽略 E501）
+- 异步：全程使用 `asyncio`；pytest 使用 `asyncio_mode = "auto"`
+- 优先选择可读的代码，而不是魔法般的代码
+- 优先选择专注的补丁，而不是广泛的重写
+- 如果引入新的抽象，它应该明显降低复杂性，而不是转移复杂性
 
-## Questions?
+## 有问题？
 
-If you have questions, ideas, or half-formed insights, you are warmly welcome here.
+如果你有问题、想法或半成品的见解，欢迎你来到这里。
 
-Please feel free to open an [issue](https://github.com/HKUDS/nanobot/issues), join the community, or simply reach out:
+请随时开启 [issue](https://github.com/HKUDS/nanobot/issues)，加入社区，或直接联系：
 
 - [Discord](https://discord.gg/MnCvHqpUGB)
-- [Feishu/WeChat](./COMMUNICATION.md)
-- Email: Xubin Ren (@Re-bin) — <xubinrencs@gmail.com>
+- [飞书/微信](./COMMUNICATION.md)
+- 邮箱：Xubin Ren (@Re-bin) — <xubinrencs@gmail.com>
 
-Thank you for spending your time and care on nanobot. We would love for more people to participate in this community, and we genuinely welcome contributions of all sizes.
+感谢你在 nanobot 上花费的时间和关心。我们希望有更多人参与这个社区，我们真诚欢迎各种规模的贡献。

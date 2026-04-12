@@ -1,5 +1,5 @@
-We provide QR codes for joining the HKUDS discussion groups on **WeChat** and **Feishu**.
+我们提供了 **微信** 和 **飞书** 的 HKUDS 讨论组二维码。
 
-You can join by scanning the QR codes below:
+你可以扫描下方二维码加入：
 
-<img src="https://github.com/HKUDS/.github/blob/main/profile/QR.png" alt="WeChat QR Code" width="400"/>
+<img src="https://github.com/HKUDS/.github/blob/main/profile/QR.png" alt="微信群二维码" width="400"/>
