@@ -618,7 +618,48 @@ def gateway(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
-    """Start the nanobot gateway."""
+    """
+    Start the nanobot gateway.
+
+    启动 nanobot 网关服务。网关是系统的核心后台进程，负责协调和管理所有的后台任务和通道通信。
+
+    主要业务流程：
+    1. 配置与环境初始化：
+       - 加载运行时的配置（`_load_runtime_config`），包含端口、工作区路径等。
+       - 确保工作区环境（模板等）已经同步（`sync_workspace_templates`）。
+       - 实例化消息总线（`MessageBus`），这是模块间异步通信的核心。
+       - 初始化 LLM 提供者（`provider`）和会话管理器（`SessionManager`）。
+
+    2. 定时任务（Cron）服务配置：
+       - 为工作区设置独立的定时任务存储路径（`jobs.json`）。
+       - 检查并迁移旧版本的全局定时任务存储（`_migrate_cron_store`）。
+       - 初始化 `CronService`，并与 `AgentLoop` 绑定。
+
+    3. 代理循环（AgentLoop）初始化：
+       - 创建 `AgentLoop` 实例，负责处理 LLM 交互和工具调用。
+       - 代理循环结合了各种配置：模型设置、上下文窗口、重试策略、工具配置（如 web、exec、MCP）等。
+
+    4. Cron 任务的回调处理（`on_cron_job`）：
+       - 拦截名为 "dream" 的内部系统任务并直接执行 `agent.dream.run()`。
+       - 对于用户定义的 cron 任务，构造系统提示（`reminder_note`），并通过代理处理（`agent.process_direct`）。
+       - 利用 `evaluate_response` 评估响应是否需要下发，如果需要，通过 `MessageBus` 发布出站消息。
+
+    5. 渠道管理器（ChannelManager）：
+       - 初始化 `ChannelManager`，用于管理和启动所有启用的消息渠道（如 CLI、Telegram、Discord 等）。
+
+    6. 心跳（Heartbeat）服务：
+       - 用于定期激活代理以保持其活跃或执行后台监控任务。
+       - `on_heartbeat_execute`：选择一个合适的目标渠道/会话，通过代理循环执行心跳任务，并保留有限的对话历史。
+       - `on_heartbeat_notify`：将心跳执行的输出结果发布到对应的消息渠道。
+       - 启动 `HeartbeatService`。
+
+    7. 内部系统任务注册：
+       - 读取配置，将 "dream" 模块作为常驻的系统级 cron 任务注册到 `CronService` 中，确保后台知识整合和长期记忆的定期运行。
+
+    8. 异步并发启动：
+       - 使用 `asyncio.gather` 并发启动核心服务：Cron、Heartbeat、AgentLoop 和所有渠道（ChannelManager）。
+       - 处理优雅停机逻辑：捕获 `KeyboardInterrupt` 或异常时，依次安全地关闭 MCP、Heartbeat、Cron、AgentLoop 和渠道。
+    """
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
@@ -636,11 +677,20 @@ def gateway(
     port = port if port is not None else config.gateway.port
 
     console.print(f"{__logo__} Starting nanobot gateway version {__version__} on port {port}...")
+    
+    # 1. 确保工作区文件系统（如模板文件）已同步到最新状态
     sync_workspace_templates(config.workspace_path)
+    
+    # 2. 初始化核心总线机制，它是整个系统中不同组件之间传递异步消息的关键
     bus = MessageBus()
+    
+    # 3. 初始化 LLM 提供者，配置使用的底层模型接口（例如 OpenAI, DeepSeek, Anthropic 等）
     provider = _make_provider(config)
+    
+    # 4. 会话管理器：用于管理各个渠道聊天上下文的状态持久化
     session_manager = SessionManager(config.workspace_path)
 
+    # 5. 迁移并配置定时任务 (Cron) 的独立存储路径
     # Preserve existing single-workspace installs, but keep custom workspaces clean.
     if is_default_workspace(config.workspace_path):
         _migrate_cron_store(config)
@@ -649,6 +699,7 @@ def gateway(
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
 
+    # 6. 初始化代理循环 AgentLoop：这是系统大脑，负责将用户请求丢给 LLM 并执行对应 Tool。
     # Create agent with cron service
     agent = AgentLoop(
         bus=bus,
@@ -670,9 +721,11 @@ def gateway(
         timezone=config.agents.defaults.timezone,
     )
 
+    # 7. 配置 Cron 服务的回调函数：当有定时任务触发时执行
     # Set cron callback (needs agent)
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
+        # 拦截名为 "dream" 的内部后台任务：直接触发知识固化而不通过 LLM 对话
         # Dream is an internal job — run directly, not through the agent loop.
         if job.name == "dream":
             try:
@@ -686,6 +739,7 @@ def gateway(
         from nanobot.agent.tools.message import MessageTool
         from nanobot.utils.evaluator import evaluate_response
 
+        # 构造给 LLM 处理的内部提示信息（告知定时任务已触发）
         reminder_note = (
             "[Scheduled Task] Timer finished.\n\n"
             f"Task '{job.name}' has been triggered.\n"
@@ -697,6 +751,7 @@ def gateway(
         if isinstance(cron_tool, CronTool):
             cron_token = cron_tool.set_cron_context(True)
         try:
+            # 通过 process_direct 将提示作为一条消息让代理直接执行
             resp = await agent.process_direct(
                 reminder_note,
                 session_key=f"cron:{job.id}",
@@ -713,6 +768,7 @@ def gateway(
         if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
             return response
 
+        # 如果任务要求通知用户，则评估代理生成的文本是否有用，有用则通过消息总线下发给特定渠道
         if job.payload.deliver and job.payload.to and response:
             should_notify = await evaluate_response(
                 response, reminder_note, provider, agent.model,
@@ -728,6 +784,7 @@ def gateway(
 
     cron.on_job = on_cron_job
 
+    # 8. 初始化渠道管理器 ChannelManager：装载/监听 Telegram、Slack 等各种聊天渠道的适配器
     # Create channel manager
     channels = ChannelManager(config, bus)
 
@@ -747,6 +804,7 @@ def gateway(
         # Fallback keeps prior behavior but remains explicit.
         return "cli", "direct"
 
+    # 9. 初始化 Heartbeat 服务，定期唤醒代理处理后台事件
     # Create heartbeat service
     async def on_heartbeat_execute(tasks: str) -> str:
         """Phase 2: execute heartbeat tasks through the full agent loop."""
@@ -755,6 +813,7 @@ def gateway(
         async def _silent(*_args, **_kwargs):
             pass
 
+        # 心跳作为特殊的系统请求注入到 Agent，并拦截输出过程使其在后台静默运行
         resp = await agent.process_direct(
             tasks,
             session_key="heartbeat",
@@ -763,6 +822,7 @@ def gateway(
             on_progress=_silent,
         )
 
+        # 清理旧数据，防止 heartbeat 会话上下文无限增长
         # Keep a small tail of heartbeat history so the loop stays bounded
         # without losing all short-term context between runs.
         session = agent.sessions.get_or_create("heartbeat")
@@ -802,6 +862,7 @@ def gateway(
 
     console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
 
+    # 10. 将 dream (知识整合和固化功能) 作为强制的系统级 cron 任务进行注册
     # Register Dream system job (always-on, idempotent on restart)
     dream_cfg = config.agents.defaults.dream
     if dream_cfg.model_override:
@@ -817,13 +878,14 @@ def gateway(
     ))
     console.print(f"[green]✓[/green] Dream: {dream_cfg.describe_schedule()}")
 
+    # 11. 并发启动上述所有组件，开始监听、调度和处理
     async def run():
         try:
             await cron.start()
             await heartbeat.start()
             await asyncio.gather(
-                agent.run(),
-                channels.start_all(),
+                agent.run(),             # 代理循环：处理接收到的 LLM 指令
+                channels.start_all(),    # 通道服务：挂载所有聊天机器人网络通信
             )
         except KeyboardInterrupt:
             console.print("\nShutting down...")
@@ -833,6 +895,7 @@ def gateway(
             console.print("\n[red]Error: Gateway crashed unexpectedly[/red]")
             console.print(traceback.format_exc())
         finally:
+            # 优雅停机，依序关闭各类连接和后台服务
             await agent.close_mcp()
             heartbeat.stop()
             cron.stop()

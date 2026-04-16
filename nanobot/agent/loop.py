@@ -1,4 +1,7 @@
-"""Agent loop: the core processing engine."""
+"""Agent loop: the core processing engine.
+
+代理循环：核心处理引擎。
+"""
 
 from __future__ import annotations
 
@@ -42,7 +45,10 @@ if TYPE_CHECKING:
 
 
 class _LoopHook(AgentHook):
-    """Core hook for the main loop."""
+    """Core hook for the main loop.
+    
+    用于主循环的核心钩子。
+    """
 
     def __init__(
         self,
@@ -111,7 +117,10 @@ class _LoopHook(AgentHook):
 
 
 class _LoopHookChain(AgentHook):
-    """Run the core hook before extra hooks."""
+    """Run the core hook before extra hooks.
+    
+    在执行额外钩子之前运行核心钩子。
+    """
 
     __slots__ = ("_primary", "_extras")
 
@@ -150,13 +159,20 @@ class _LoopHookChain(AgentHook):
 class AgentLoop:
     """
     The agent loop is the core processing engine.
+    
+    代理循环是核心处理引擎。
 
     It:
     1. Receives messages from the bus
+       从总线接收消息
     2. Builds context with history, memory, skills
+       利用历史记录、内存和技能构建上下文
     3. Calls the LLM
+       调用 LLM (大型语言模型)
     4. Executes tool calls
+       执行工具调用
     5. Sends responses back
+       发送响应返回
     """
 
     _RUNTIME_CHECKPOINT_KEY = "runtime_checkpoint"
@@ -261,7 +277,10 @@ class AgentLoop:
         register_builtin_commands(self.commands)
 
     def _register_default_tools(self) -> None:
-        """Register the default set of tools."""
+        """Register the default set of tools.
+        
+        注册默认工具集。
+        """
         allowed_dir = self.workspace if (self.restrict_to_workspace or self.exec_config.sandbox) else None
         extra_read = [BUILTIN_SKILLS_DIR] if allowed_dir else None
         self.tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
@@ -288,7 +307,10 @@ class AgentLoop:
             )
 
     async def _connect_mcp(self) -> None:
-        """Connect to configured MCP servers (one-time, lazy)."""
+        """Connect to configured MCP servers (one-time, lazy).
+        
+        连接到配置好的 MCP 服务器（一次性、懒加载）。
+        """
         if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
             return
         self._mcp_connecting = True
@@ -310,7 +332,10 @@ class AgentLoop:
             self._mcp_connecting = False
 
     def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
-        """Update context for all tools that need routing info."""
+        """Update context for all tools that need routing info.
+        
+        为所有需要路由信息的工具更新上下文。
+        """
         for name in ("message", "spawn", "cron"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
@@ -318,7 +343,10 @@ class AgentLoop:
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
-        """Remove <think>…</think> blocks that some models embed in content."""
+        """Remove <think>…</think> blocks that some models embed in content.
+        
+        移除某些模型在内容中嵌入的 <think>…</think> 块。
+        """
         if not text:
             return None
         from nanobot.utils.helpers import strip_think
@@ -326,7 +354,10 @@ class AgentLoop:
 
     @staticmethod
     def _tool_hint(tool_calls: list) -> str:
-        """Format tool calls as concise hint, e.g. 'web_search("query")'."""
+        """Format tool calls as concise hint, e.g. 'web_search("query")'.
+        
+        将工具调用格式化为简明的提示，例如 'web_search("query")'。
+        """
         def _fmt(tc):
             args = (tc.arguments[0] if isinstance(tc.arguments, list) else tc.arguments) or {}
             val = next(iter(args.values()), None) if isinstance(args, dict) else None
@@ -348,11 +379,17 @@ class AgentLoop:
         message_id: str | None = None,
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop.
+        
+        运行代理迭代循环。
 
         *on_stream*: called with each content delta during streaming.
+                     在流式传输期间针对每个内容增量调用。
         *on_stream_end(resuming)*: called when a streaming session finishes.
+                     当流式会话完成时调用。
         ``resuming=True`` means tool calls follow (spinner should restart);
+                     意味着随后将有工具调用（进度提示应该重新开始）；
         ``resuming=False`` means this is the final response.
+                     意味着这是最终响应。
         """
         loop_hook = _LoopHook(
             self,
@@ -399,7 +436,10 @@ class AgentLoop:
         return result.final_content, result.tools_used, result.messages
 
     async def run(self) -> None:
-        """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
+        """Run the agent loop, dispatching messages as tasks to stay responsive to /stop.
+        
+        运行代理循环，将消息分发为任务，以保持对 /stop 命令的响应。
+        """
         self._running = True
         await self._connect_mcp()
         logger.info("Agent loop started")
@@ -431,7 +471,10 @@ class AgentLoop:
             task.add_done_callback(lambda t, k=msg.session_key: self._active_tasks.get(k, []) and self._active_tasks[k].remove(t) if t in self._active_tasks.get(k, []) else None)
 
     async def _dispatch(self, msg: InboundMessage) -> None:
-        """Process a message: per-session serial, cross-session concurrent."""
+        """Process a message: per-session serial, cross-session concurrent.
+        
+        处理一条消息：单个会话内串行，跨会话并发。
+        """
         lock = self._session_locks.setdefault(msg.session_key, asyncio.Lock())
         gate = self._concurrency_gate or nullcontext()
         async with lock, gate:
@@ -489,7 +532,10 @@ class AgentLoop:
                 ))
 
     async def close_mcp(self) -> None:
-        """Drain pending background archives, then close MCP connections."""
+        """Drain pending background archives, then close MCP connections.
+        
+        排空待处理的后台归档任务，然后关闭 MCP 连接。
+        """
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
@@ -501,13 +547,19 @@ class AgentLoop:
             self._mcp_stack = None
 
     def _schedule_background(self, coro) -> None:
-        """Schedule a coroutine as a tracked background task (drained on shutdown)."""
+        """Schedule a coroutine as a tracked background task (drained on shutdown).
+        
+        将一个协程调度为受跟踪的后台任务（在关机时排空）。
+        """
         task = asyncio.create_task(coro)
         self._background_tasks.append(task)
         task.add_done_callback(self._background_tasks.remove)
 
     def stop(self) -> None:
-        """Stop the agent loop."""
+        """Stop the agent loop.
+        
+        停止代理循环。
+        """
         self._running = False
         logger.info("Agent loop stopping")
 
@@ -519,7 +571,10 @@ class AgentLoop:
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
-        """Process a single inbound message and return the response."""
+        """Process a single inbound message and return the response.
+        
+        处理单条入站消息并返回响应。
+        """
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
             channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
@@ -625,7 +680,10 @@ class AgentLoop:
         truncate_text: bool = False,
         drop_runtime: bool = False,
     ) -> list[dict[str, Any]]:
-        """Strip volatile multimodal payloads before writing session history."""
+        """Strip volatile multimodal payloads before writing session history.
+        
+        在写入会话历史记录之前，剥离易变的多模态有效负载。
+        """
         filtered: list[dict[str, Any]] = []
         for block in content:
             if not isinstance(block, dict):
@@ -660,7 +718,10 @@ class AgentLoop:
         return filtered
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
-        """Save new-turn messages into session, truncating large tool results."""
+        """Save new-turn messages into session, truncating large tool results.
+        
+        将新一轮的消息保存到会话中，并截断过大的工具执行结果。
+        """
         from datetime import datetime
         for m in messages[skip:]:
             entry = dict(m)
@@ -693,7 +754,10 @@ class AgentLoop:
         session.updated_at = datetime.now()
 
     def _set_runtime_checkpoint(self, session: Session, payload: dict[str, Any]) -> None:
-        """Persist the latest in-flight turn state into session metadata."""
+        """Persist the latest in-flight turn state into session metadata.
+        
+        将最新的处理中（in-flight）的一轮状态持久化到会话元数据中。
+        """
         session.metadata[self._RUNTIME_CHECKPOINT_KEY] = payload
         self.sessions.save(session)
 
@@ -714,7 +778,10 @@ class AgentLoop:
         )
 
     def _restore_runtime_checkpoint(self, session: Session) -> bool:
-        """Materialize an unfinished turn into session history before a new request."""
+        """Materialize an unfinished turn into session history before a new request.
+        
+        在新请求到来之前，将未完成的一轮具体化到会话历史记录中。
+        """
         from datetime import datetime
 
         checkpoint = session.metadata.get(self._RUNTIME_CHECKPOINT_KEY)
@@ -774,7 +841,10 @@ class AgentLoop:
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
-        """Process a message directly and return the outbound payload."""
+        """Process a message directly and return the outbound payload.
+        
+        直接处理消息并返回出站有效负载。
+        """
         await self._connect_mcp()
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
         return await self._process_message(
