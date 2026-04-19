@@ -880,27 +880,44 @@ def gateway(
 
     # 11. 并发启动上述所有组件，开始监听、调度和处理
     async def run():
+        """网关服务的主运行函数
+        
+        此函数负责启动和管理 nanobot 网关的所有核心服务组件，
+        包括定时任务、心跳服务、代理循环和通道服务。
+        同时处理异常情况和优雅停机流程。
+        """
         try:
+            # 1. 启动定时任务服务
+            # Cron 服务负责管理和执行预定的任务，如知识整合（dream）
             await cron.start()
+            
+            # 2. 启动心跳服务
+            # Heartbeat 服务定期唤醒代理以保持其活跃状态或执行后台监控任务
             await heartbeat.start()
+            
+            # 3. 并行启动核心服务
+            # 使用 asyncio.gather 并发运行多个异步任务
             await asyncio.gather(
-                agent.run(),             # 代理循环：处理接收到的 LLM 指令
-                channels.start_all(),    # 通道服务：挂载所有聊天机器人网络通信
+                agent.run(),             # 代理循环：处理接收到的 LLM 指令和工具调用
+                channels.start_all(),    # 通道服务：挂载所有聊天机器人网络通信（如 Telegram、Discord 等）
             )
         except KeyboardInterrupt:
+            # 处理用户中断（如 Ctrl+C）
             console.print("\nShutting down...")
         except Exception:
+            # 处理其他未预期的错误
             import traceback
 
             console.print("\n[red]Error: Gateway crashed unexpectedly[/red]")
             console.print(traceback.format_exc())
         finally:
-            # 优雅停机，依序关闭各类连接和后台服务
-            await agent.close_mcp()
-            heartbeat.stop()
-            cron.stop()
-            agent.stop()
-            await channels.stop_all()
+            # 4. 优雅停机，依序关闭各类连接和后台服务
+            # 按照依赖关系的逆序关闭服务，确保资源正确释放
+            await agent.close_mcp()  # 关闭模型控制协议连接
+            heartbeat.stop()         # 停止心跳服务
+            cron.stop()              # 停止定时任务服务
+            agent.stop()             # 停止代理循环
+            await channels.stop_all() # 停止所有通道服务
 
     asyncio.run(run())
 
