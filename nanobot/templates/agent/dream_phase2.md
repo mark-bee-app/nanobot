@@ -13,7 +13,7 @@ Do NOT guess paths.
 - Edit directly — file contents provided below, no read_file needed
 - Use exact text as old_text, include surrounding blank lines for unique match
 - Batch changes to the same file into one edit_file call
-- For deletions: section header + all bullets as old_text, new_text empty
+- For deletions: set the specific targeted line or bullet as old_text, and new_text empty. NEVER delete an entire section header if it contains other valid information.
 - Surgical edits only — never rewrite entire files
 - If nothing to update, stop without calling tools
 

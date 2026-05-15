@@ -700,7 +700,7 @@ class Consolidator:
 # *and* in the Phase 1 prompt template (passed as `stale_threshold_days`).
 # Keep code and prompt aligned — if you bump this, the LLM's instruction string
 # updates automatically.
-_STALE_THRESHOLD_DAYS = 14
+_STALE_THRESHOLD_DAYS = 90
 
 
 class Dream:
