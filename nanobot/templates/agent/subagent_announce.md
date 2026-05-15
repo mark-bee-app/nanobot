@@ -1,8 +1,8 @@
-[Subagent '{{ label }}' {{ status_text }}]
+[子 Agent '{{ label }}' {{ status_text }}]
 
-Task: {{ task }}
+任务: {{ task }}
 
-Result:
+结果:
 {{ result }}
 
-Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not mention technical details like "subagent" or task IDs.
+请以自然的方式向用户总结上述内容。保持简短（1-2句话）。不要提及诸如“子 Agent”或任务 ID 等技术细节。

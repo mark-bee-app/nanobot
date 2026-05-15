@@ -1,33 +1,33 @@
-You have TWO equally important tasks:
-1. Extract new facts from conversation history
-2. Deduplicate existing memory files — find and flag redundant, overlapping, or stale content even if NOT mentioned in history
+你有两个同等重要的任务：
+1. 从对话历史中提取新的事实
+2. 对现有的记忆文件进行去重 — 即使历史记录中没有提及，也要查找并标记冗余、重叠或过时的内容
 
-Output one line per finding:
-[FILE] atomic fact (not already in memory)
-[FILE-REMOVE] reason for removal
+每个发现输出一行：
+[FILE] 原子事实 (尚未在记忆中)
+[FILE-REMOVE] 移除原因
 
-Files: USER (identity, preferences), SOUL (bot behavior, tone), MEMORY (knowledge, project context)
+文件：USER (身份、偏好)、SOUL (机器人行为、语气)、MEMORY (知识、项目上下文)
 
-Rules:
-- Atomic facts: "has a cat named Luna" not "discussed pet care"
-- Corrections: [USER] location is Tokyo, not Osaka
-- Capture confirmed approaches the user validated
+规则：
+- 原子事实：“有一只名叫 Luna 的猫”，而不是“讨论了宠物护理”
+- 纠正：[USER] 所在地是东京，而不是大阪
+- 记录用户确认过并验证有效的方法
 
-Deduplication — scan ALL memory files for these redundancy patterns:
-- Same fact stated in multiple places (e.g., "communicates in Chinese" in both USER.md and multiple MEMORY.md entries)
-- Overlapping or nested sections covering the same topic
-- Information in MEMORY.md that is already captured in USER.md or SOUL.md (MEMORY.md should not duplicate permanent-file content)
-- IMPORTANT: Retention over condensation. Do NOT condense or generalize specific project details, technical context, or code references. Retain details unless they are objectively transient.
-For each duplicate found, output [FILE-REMOVE] for the less authoritative copy (prefer keeping facts in their canonical location)
+去重 — 扫描所有记忆文件，查找以下冗余模式：
+- 多个地方陈述了相同的事实（例如，“用中文交流”同时出现在 USER.md 和多个 MEMORY.md 条目中）
+- 涵盖相同主题的重叠或嵌套部分
+- MEMORY.md 中的信息已经包含在 USER.md 或 SOUL.md 中（MEMORY.md 不应重复永久文件中的内容）
+- **重要：保留优于精简**。不要精简或概括具体的项目细节、技术上下文或代码引用。保留细节，除非它们客观上已经失效。
+对于发现的每个重复项，为权威性较低的副本输出 [FILE-REMOVE]（倾向于将事实保留在其规范位置）
 
-Staleness — MEMORY.md lines may have a ``← Nd`` suffix showing days since last modification:
-- SOUL.md and USER.md have no age annotations — they are permanent, only update with corrections
-- Age only indicates when content was last touched, not whether it should be removed
-- Use content judgment: user habits/preferences/personality traits are permanent regardless of age
-- Only prune content that is objectively outdated: passed events, resolved tracking, superseded approaches. If uncertain whether a detail is still relevant, DO NOT remove it, instead you can append ` (needs verification)`.
-- Lines with ``← Nd`` (N>{{ stale_threshold_days }}) deserve closer review but are NOT automatically removable
-- When removing: prefer deleting individual items over entire sections
+过时 — MEMORY.md 中的行可能带有 ``← Nd`` 后缀，表示自上次修改以来的天数：
+- SOUL.md 和 USER.md 没有年龄注释 — 它们是永久的，只在需要纠正时更新
+- 年龄仅表示内容上次被触及的时间，并不代表它应该被移除
+- 基于内容进行判断：用户的习惯/偏好/性格特征无论时间长短都是永久的
+- 只清除客观上已过时的内容：过去发生的事件、已解决的跟踪事项、被取代的方法。如果不确定某个细节是否仍然相关，**不要**删除它，而是可以在后面追加 ` (需要验证)`。
+- 带有 ``← Nd`` (N>{{ stale_threshold_days }}) 的行需要仔细审查，但**不会**被自动删除
+- 移除时：倾向于删除单个项目，而不是整个部分
 
-Do not add: current weather, transient status, temporary errors, conversational filler.
+不要添加：当前天气、瞬时状态、临时错误、对话填充词。
 
-[SKIP] if nothing needs updating.
+如果没有任何需要更新的内容，输出 [SKIP]。

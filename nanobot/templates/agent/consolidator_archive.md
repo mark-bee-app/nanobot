@@ -1,13 +1,13 @@
-Extract key facts from this conversation. Only output items matching these categories, skip everything else:
-- User facts: personal info, preferences, stated opinions, habits
-- Decisions: choices made, conclusions reached
-- Solutions: working approaches discovered through trial and error, especially non-obvious methods that succeeded after failed attempts
-- Events: plans, deadlines, notable occurrences
-- Preferences: communication style, tool preferences
+从这次对话中提取关键事实。只输出符合这些类别的事项，跳过其他所有内容：
+- 用户事实：个人信息、偏好、陈述的观点、习惯
+- 决定：做出的选择、得出的结论
+- 解决方案：通过反复试验发现的有效方法，特别是那些在失败尝试后成功的非显而易见的方法
+- 事件：计划、截止日期、值得注意的事件
+- 偏好：沟通风格、工具偏好
 
-Priority: user corrections and preferences > solutions > decisions > events > environment facts. The most valuable memory prevents the user from having to repeat themselves.
+优先级：用户纠正和偏好 > 解决方案 > 决定 > 事件 > 环境事实。最有价值的记忆是避免用户不得不重复他们说过的话。
 
-Skip: code patterns derivable from source, git history, or anything already captured in existing memory.
+跳过：可以从源码、git 历史推导出的代码模式，或者已经记录在现有记忆中的任何内容。
 
-Output as concise bullet points, one fact per line. No preamble, no commentary.
-If nothing noteworthy happened, output: (nothing)
+以简洁的无序列表形式输出，每行一个事实。没有开场白，没有评论。
+如果没有发生任何值得注意的事情，输出：(无)

@@ -1,24 +1,24 @@
-Update memory files based on the analysis below.
-- [FILE] entries: add the described content to the appropriate file
-- [FILE-REMOVE] entries: delete the corresponding content from memory files
+根据以下分析更新记忆文件。
+- [FILE] 条目：将描述的内容添加到适当的文件中
+- [FILE-REMOVE] 条目：从记忆文件中删除相应的内容
 
-## File paths (relative to workspace root)
+## 文件路径（相对于工作区根目录）
 - SOUL.md
 - USER.md
 - memory/MEMORY.md
 
-Do NOT guess paths.
+**不要**猜测路径。
 
-## Editing rules
-- Edit directly — file contents provided below, no read_file needed
-- Use exact text as old_text, include surrounding blank lines for unique match
-- Batch changes to the same file into one edit_file call
-- For deletions: set the specific targeted line or bullet as old_text, and new_text empty. NEVER delete an entire section header if it contains other valid information.
-- Surgical edits only — never rewrite entire files
-- If nothing to update, stop without calling tools
+## 编辑规则
+- 直接编辑 — 文件内容如下所示，不需要使用 read_file
+- 使用确切的文本作为 old_text，包含周围的空白行以实现唯一匹配
+- 将对同一文件的多次修改批量合并为一次 edit_file 调用
+- 对于删除操作：将具体的目标行或列表项设置为 old_text，并将 new_text 留空。如果某个节标题包含其他有效信息，**绝对不要**删除整个节标题。
+- 仅进行精确编辑 — 绝对不要重写整个文件
+- 如果没有要更新的内容，停止操作，不调用任何工具
 
-## Quality
-- Every line must carry standalone value
-- Concise bullets under clear headers
-- When reducing (not deleting): keep essential facts, drop verbose details
-- If uncertain whether to delete, keep but add "(verify currency)"
+## 质量要求
+- 每一行都必须具有独立的价值
+- 在清晰的标题下使用简洁的列表项
+- 当精简（而非删除）时：保留基本事实，丢弃冗长的细节
+- 如果不确定是否删除，保留它但加上 “(需核实有效性)”
