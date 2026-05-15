@@ -1438,12 +1438,11 @@ class FeishuChannel(BaseChannel):
 
         now = time.monotonic()
         if buf.card_id is None:
-            # Send the streaming card as a reply for group chats so it
+            # Send the streaming card as a reply for both group and p2p chats so it
             # lands inside the originating topic/thread.  Always target
             # message_id (the actual inbound message) — the Feishu Reply
             # API keeps the response in the same topic automatically.
-            is_group = meta.get("chat_type", "group") == "group"
-            reply_msg_id = meta.get("message_id") if is_group else None
+            reply_msg_id = meta.get("message_id")
             card_id = await loop.run_in_executor(
                 None,
                 self._create_streaming_card_sync,
@@ -1499,8 +1498,7 @@ class FeishuChannel(BaseChannel):
                     ensure_ascii=False,
                 )
                 _th_msg_id = msg.metadata.get("message_id")
-                _th_chat_type = msg.metadata.get("chat_type", "group")
-                if _th_msg_id and _th_chat_type == "group":
+                if _th_msg_id:
                     await loop.run_in_executor(
                         None, lambda: self._reply_message_sync(
                             _th_msg_id, "interactive", card,
@@ -1539,10 +1537,10 @@ class FeishuChannel(BaseChannel):
                 nonlocal first_send
                 if reply_message_id and first_send:
                     first_send = False
-                    chat_type = msg.metadata.get("chat_type", "group")
+                    # Use reply_in_thread for both group and p2p chats to keep conversations tidy
                     ok = self._reply_message_sync(
                         reply_message_id, m_type, content,
-                        reply_in_thread=chat_type == "group",
+                        reply_in_thread=True,
                     )
                     if ok:
                         return
