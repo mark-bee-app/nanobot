@@ -1,100 +1,100 @@
-# Memory in nanobot
+# nanobot 中的记忆系统
 
-nanobot's memory is built on a simple belief: memory should feel alive, but it should not feel chaotic.
+nanobot 的记忆系统建立在一个简单的理念之上：记忆应该让人感觉是鲜活的，但绝不应该混乱。
 
-Good memory is not a pile of notes. It is a quiet system of attention. It notices what is worth keeping, lets go of what no longer needs the spotlight, and turns lived experience into something calm, durable, and useful.
+好的记忆不应该只是一堆笔记。它是一种安静的注意力系统。它能注意到什么值得保留，放手那些不再需要被关注的事物，并将经历转化为平静、持久且有用的东西。
 
-That is the shape of memory in nanobot.
+这就是 nanobot 记忆系统的形态。
 
-## The Design
+## 设计理念
 
-nanobot does not treat memory as one giant file.
+nanobot 并没有把记忆当作一个巨大的文件来处理。
 
-It separates memory into layers, because different kinds of remembering deserve different tools:
+它将记忆分层，因为不同类型的记忆需要使用不同的工具：
 
-- `session.messages` holds the living short-term conversation.
-- `memory/history.jsonl` is the running archive of compressed past turns.
-- `SOUL.md`, `USER.md`, and `memory/MEMORY.md` are the durable knowledge files.
-- `GitStore` records how those durable files change over time.
+- `session.messages` 保存着正在进行的短期对话。
+- `memory/history.jsonl` 是一份持续滚动的、压缩过的历史对话归档。
+- `SOUL.md`、`USER.md` 和 `memory/MEMORY.md` 是持久化的知识文件。
+- `GitStore` 负责记录这些持久化文件随时间的变化。
 
-This keeps the system light in the moment, but reflective over time.
+这种设计使得系统在当下保持轻量，同时随着时间推移能够不断反思和沉淀。
 
-## The Flow
+## 工作流
 
-Memory moves through nanobot in two stages.
+记忆在 nanobot 中的流转分为两个阶段。
 
-### Stage 1: Consolidator
+### 阶段 1：整合器 (Consolidator)
 
-When a conversation grows large enough to pressure the context window, nanobot does not try to carry every old message forever.
+当对话增长到足以对上下文窗口造成压力时，nanobot 并不会试图永久携带每一条旧消息。
 
-Instead, the `Consolidator` summarizes the oldest safe slice of the conversation and appends that summary to `memory/history.jsonl`.
+相反，`Consolidator` 会选取最旧的一段安全对话切片进行总结，并将该摘要追加到 `memory/history.jsonl` 中。
 
-This file is:
+这个文件具有以下特点：
 
-- append-only
-- cursor-based
-- optimized for machine consumption first, human inspection second
+- 只能追加 (append-only)
+- 基于游标 (cursor-based)
+- 优先为机器读取优化，其次才是人类查看
 
-Each line is a JSON object:
+每一行都是一个 JSON 对象：
 
 ```json
-{"cursor": 42, "timestamp": "2026-04-03 00:02", "content": "- User prefers dark mode\n- Decided to use PostgreSQL"}
+{"cursor": 42, "timestamp": "2026-04-03 00:02", "content": "- 用户偏好深色模式\n- 决定使用 PostgreSQL"}
 ```
 
-It is not the final memory. It is the material from which final memory is shaped.
+它并不是最终的记忆，而是塑造最终记忆的素材。
 
-### Stage 2: Dream
+### 阶段 2：梦境 (Dream)
 
-`Dream` is the slower, more thoughtful layer. It runs on a cron schedule by default and can also be triggered manually.
+`Dream` 是一个更缓慢、更深思熟虑的记忆层。默认情况下，它按 cron 定时任务计划运行，也可以手动触发。
 
-Dream reads:
+Dream 会读取：
 
-- new entries from `memory/history.jsonl`
-- the current `SOUL.md`
-- the current `USER.md`
-- the current `memory/MEMORY.md`
+- `memory/history.jsonl` 中的新条目
+- 当前的 `SOUL.md`
+- 当前的 `USER.md`
+- 当前的 `memory/MEMORY.md`
 
-Then it works in two phases:
+然后它分两个阶段工作：
 
-1. It studies what is new and what is already known.
-2. It edits the long-term files surgically, not by rewriting everything, but by making the smallest honest change that keeps memory coherent.
+1. 它会研究什么是新的信息，什么是已经知道的信息。
+2. 它对外科手术式地编辑长期记忆文件，而不是重写所有内容。它通过做出能保持记忆连贯性的最小、最真实的改动来实现。
 
-This is why nanobot's memory is not just archival. It is interpretive.
+这就是为什么 nanobot 的记忆不仅仅是简单的存档，它具有理解和解释的能力。
 
-## The Files
+## 文件结构
 
 ```text
 workspace/
-├── SOUL.md              # The bot's long-term voice and communication style
-├── USER.md              # Stable knowledge about the user
+├── SOUL.md              # 机器人的长期性格声音和沟通风格
+├── USER.md              # 关于用户的稳定知识
 └── memory/
-    ├── MEMORY.md        # Project facts, decisions, and durable context
-    ├── history.jsonl    # Append-only history summaries
-    ├── .cursor          # Consolidator write cursor
-    ├── .dream_cursor    # Dream consumption cursor
-    └── .git/            # Version history for long-term memory files
+    ├── MEMORY.md        # 项目事实、决策和持久的上下文
+    ├── history.jsonl    # 只能追加的历史摘要
+    ├── .cursor          # Consolidator 的写入游标
+    ├── .dream_cursor    # Dream 的消费游标
+    └── .git/            # 长期记忆文件的版本历史
 ```
 
-These files play different roles:
+这些文件扮演着不同的角色：
 
-- `SOUL.md` remembers how nanobot should sound.
-- `USER.md` remembers who the user is and what they prefer.
-- `MEMORY.md` remembers what remains true about the work itself.
-- `history.jsonl` remembers what happened on the way there.
+- `SOUL.md` 记住 nanobot 听起来应该是什么样的。
+- `USER.md` 记住用户是谁以及他们的偏好。
+- `MEMORY.md` 记住关于工作本身什么是保持真实的。
+- `history.jsonl` 记住在到达当前状态的过程中发生了什么。
 
-## Why `history.jsonl`
+## 为什么使用 `history.jsonl`
 
-The old `HISTORY.md` format was pleasant for casual reading, but it was too fragile as an operational substrate.
+旧的 `HISTORY.md` 格式虽然方便日常阅读，但作为运行基础来说太脆弱了。
 
-`history.jsonl` gives nanobot:
+`history.jsonl` 为 nanobot 带来了：
 
-- stable incremental cursors
-- safer machine parsing
-- easier batching
-- cleaner migration and compaction
-- a better boundary between raw history and curated knowledge
+- 稳定的增量游标
+- 更安全的机器解析
+- 更容易进行批处理
+- 更清晰的数据迁移和压缩
+- 在原始历史记录和精心策划的知识之间建立了更好的边界
 
-You can still search it with familiar tools:
+你仍然可以使用熟悉的工具来搜索它：
 
 ```bash
 # grep
@@ -107,40 +107,40 @@ cat memory/history.jsonl | jq -r 'select(.content | test("keyword"; "i")) | .con
 python -c "import json; [print(json.loads(l).get('content','')) for l in open('memory/history.jsonl','r',encoding='utf-8') if l.strip() and 'keyword' in l.lower()][-20:]"
 ```
 
-The difference is philosophical as much as technical:
+这种改变在技术层面和哲学层面上都有意义：
 
-- `history.jsonl` is for structure
-- `SOUL.md`, `USER.md`, and `MEMORY.md` are for meaning
+- `history.jsonl` 用于结构
+- `SOUL.md`、`USER.md` 和 `MEMORY.md` 用于意义
 
-## Commands
+## 命令
 
-Memory is not hidden behind the curtain. Users can inspect and guide it.
+记忆并不是隐藏在幕后的。用户可以随时检查并引导它。
 
-| Command | What it does |
+| 命令 | 作用 |
 |---------|--------------|
-| `/dream` | Run Dream immediately |
-| `/dream-log` | Show the latest Dream memory change |
-| `/dream-log <sha>` | Show a specific Dream change |
-| `/dream-restore` | List recent Dream memory versions |
-| `/dream-restore <sha>` | Restore memory to the state before a specific change |
+| `/dream` | 立即运行 Dream |
+| `/dream-log` | 显示最新一次的 Dream 记忆更改 |
+| `/dream-log <sha>` | 显示某次特定的 Dream 更改 |
+| `/dream-restore` | 列出最近的 Dream 记忆版本 |
+| `/dream-restore <sha>` | 将记忆恢复到特定更改之前的状态 |
 
-These commands exist for a reason: automatic memory is powerful, but users should always retain the right to inspect, understand, and restore it.
+这些命令的存在是有原因的：自动记忆固然强大，但用户应该始终保留检查、理解和恢复它的权利。
 
-## Versioned Memory
+## 版本化记忆
 
-After Dream changes long-term memory files, nanobot can record that change with `GitStore`.
+在 Dream 更改了长期记忆文件之后，nanobot 会使用 `GitStore` 记录下这次更改。
 
-This gives memory a history of its own:
+这赋予了记忆自身的历史：
 
-- you can inspect what changed
-- you can compare versions
-- you can restore a previous state
+- 你可以检查什么被改变了
+- 你可以比较不同版本
+- 你可以恢复到之前的状态
 
-That turns memory from a silent mutation into an auditable process.
+这将记忆从悄无声息的突变，转变为一个可审计的过程。
 
-## Configuration
+## 配置
 
-Dream is configured under `agents.defaults.dream`:
+Dream 的配置在 `agents.defaults.dream` 下：
 
 ```json
 {
@@ -157,33 +157,33 @@ Dream is configured under `agents.defaults.dream`:
 }
 ```
 
-| Field | Meaning |
+| 字段 | 含义 |
 |-------|---------|
-| `intervalH` | How often Dream runs, in hours |
-| `modelOverride` | Optional Dream-specific model override |
-| `maxBatchSize` | How many history entries Dream processes per run |
-| `maxIterations` | The tool budget for Dream's editing phase |
+| `intervalH` | Dream 运行的频率，以小时为单位 |
+| `modelOverride` | 可选的 Dream 专属模型覆盖设置 |
+| `maxBatchSize` | Dream 每次运行处理多少条历史记录 |
+| `maxIterations` | Dream 编辑阶段的工具调用预算上限 |
 
-In practical terms:
+在实际应用中：
 
-- `modelOverride: null` means Dream uses the same model as the main agent. Set it only if you want Dream to run on a different model.
-- `maxBatchSize` controls how many new `history.jsonl` entries Dream consumes in one run. Larger batches catch up faster; smaller batches are lighter and steadier.
-- `maxIterations` limits how many read/edit steps Dream can take while updating `SOUL.md`, `USER.md`, and `MEMORY.md`. It is a safety budget, not a quality score.
-- `intervalH` is the normal way to configure Dream. Internally it runs as an `every` schedule, not as a cron expression.
+- `modelOverride: null` 意味着 Dream 使用与主代理相同的模型。只有当你希望 Dream 在不同的模型上运行时才设置它。
+- `maxBatchSize` 控制 Dream 在一次运行中消费多少条新的 `history.jsonl` 记录。较大的批次追赶速度更快；较小的批次则更轻量、更稳定。
+- `maxIterations` 限制了 Dream 在更新 `SOUL.md`、`USER.md` 和 `MEMORY.md` 时可以采取多少次读取/编辑步骤。这是一个安全预算，而不是质量分数。
+- `intervalH` 是配置 Dream 的常规方式。在内部，它是作为一个 `every` 计划运行的，而不是一个 cron 表达式。
 
-Legacy note:
+遗留说明：
 
-- Older source-based configs may still contain `dream.cron`. nanobot continues to honor it for backward compatibility, but new configs should use `intervalH`.
-- Older source-based configs may still contain `dream.model`. nanobot continues to honor it for backward compatibility, but new configs should use `modelOverride`.
+- 较旧的基于源的配置可能仍然包含 `dream.cron`。nanobot 为了向后兼容继续支持它，但新配置应该使用 `intervalH`。
+- 较旧的基于源的配置可能仍然包含 `dream.model`。nanobot 为了向后兼容继续支持它，但新配置应该使用 `modelOverride`。
 
-## In Practice
+## 实际意义
 
-What this means in daily use is simple:
+在日常使用中，这意味着：
 
-- conversations can stay fast without carrying infinite context
-- durable facts can become clearer over time instead of noisier
-- the user can inspect and restore memory when needed
+- 对话可以保持快速响应，而无需携带无限的上下文
+- 持久的事实会随着时间的推移变得越来越清晰，而不是越来越嘈杂
+- 用户可以在需要时检查和恢复记忆
 
-Memory should not feel like a dump. It should feel like continuity.
+记忆不应该感觉像是一个垃圾场。它应该感觉像是一种延续性。
 
-That is what this design is trying to protect.
+这正是这个设计所试图保护的。
