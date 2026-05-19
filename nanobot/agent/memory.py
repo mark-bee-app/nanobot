@@ -39,7 +39,9 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 class MemoryStore:
-    """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
+    """纯文件 I/O 层：负责管理所有的记忆文件。
+    Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md.
+    """
 
     _DEFAULT_MAX_HISTORY = 1000
     _LEGACY_ENTRY_START_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2}[^\]]*)\]\s*")
@@ -52,18 +54,26 @@ class MemoryStore:
         self.workspace = workspace
         self.max_history_entries = max_history_entries
         self.memory_dir = ensure_dir(workspace / "memory")
-        self.memory_file = self.memory_dir / "MEMORY.md"
-        self.history_file = self.memory_dir / "history.jsonl"
+        
+        # --- 记忆文件定义 ---
+        self.memory_file = self.memory_dir / "MEMORY.md"      # 长期记忆（项目状态、客观事实）
+        self.history_file = self.memory_dir / "history.jsonl" # 历史对话记录（JSONL格式，仅追加摘要）
         self.legacy_history_file = self.memory_dir / "HISTORY.md"
-        self.soul_file = workspace / "SOUL.md"
-        self.user_file = workspace / "USER.md"
-        self._cursor_file = self.memory_dir / ".cursor"
-        self._dream_cursor_file = self.memory_dir / ".dream_cursor"
+        self.soul_file = workspace / "SOUL.md"                # Agent的灵魂（设定与原则）
+        self.user_file = workspace / "USER.md"                # 用户偏好与画像
+        
+        # --- 游标记录文件（用于断点续传） ---
+        self._cursor_file = self.memory_dir / ".cursor"             # 记录 history 最新写入到了哪个游标 ID
+        self._dream_cursor_file = self.memory_dir / ".dream_cursor" # 记录 Dream 机制上次处理到了哪个游标 ID
         self._corruption_logged = False  # rate-limit non-int cursor warning
         self._oversize_logged = False  # rate-limit oversized-entry warning
+        
+        # --- Git 版本控制 ---
         self._git = GitStore(workspace, tracked_files=[
             "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/.dream_cursor",
         ])
+        
+        # 兼容老版本的迁移逻辑 (HISTORY.md -> history.jsonl)
         self._maybe_migrate_legacy_history()
 
     @property
@@ -233,7 +243,9 @@ class MemoryStore:
     # -- history.jsonl — append-only, JSONL format ---------------------------
 
     def append_history(self, entry: str, *, max_chars: int | None = None) -> int:
-        """Append *entry* to history.jsonl and return its auto-incrementing cursor.
+        """【核心方法】将新消息追加到 history.jsonl 中，并返回自增的游标 (cursor)。
+        
+        Append *entry* to history.jsonl and return its auto-incrementing cursor.
 
         Entries are passed through `strip_think` to drop template-level leaks
         (e.g. unclosed `<think` prefixes, `<channel|>` markers) before being
@@ -248,9 +260,11 @@ class MemoryStore:
         large writes (e.g. an LLM echoing its input back as a "summary").
         """
         limit = max_chars if max_chars is not None else _HISTORY_ENTRY_HARD_CAP
-        cursor = self._next_cursor()
+        cursor = self._next_cursor() # 获取下一个自增游标
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
         raw = entry.rstrip()
+        
+        # 防御性截断，防止单条记录把文件撑爆
         if len(raw) > limit:
             if not self._oversize_logged:
                 self._oversize_logged = True
@@ -261,6 +275,8 @@ class MemoryStore:
                     limit, len(raw),
                 )
             raw = truncate_text(raw, limit)
+            
+        # strip_think 过滤掉 LLM 生成的 <think> 思考过程标签，防止内部思考逻辑污染未来的记忆上下文
         content = strip_think(raw)
         if raw and not content:
             logger.debug(
@@ -269,8 +285,12 @@ class MemoryStore:
                 cursor,
             )
         record = {"cursor": cursor, "timestamp": ts, "content": content}
+        
+        # 以 JSONL (JSON Lines) 格式追加写入，每一行是一个合法的 JSON 对象，非常适合追加和流式读取
         with open(self.history_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            
+        # 更新最新游标文件
         self._cursor_file.write_text(str(cursor), encoding="utf-8")
         return cursor
 
@@ -442,7 +462,9 @@ _HISTORY_ENTRY_HARD_CAP = 64_000      # emergency cap in append_history
 
 
 class Consolidator:
-    """Lightweight consolidation: summarizes evicted messages into history.jsonl."""
+    """轻量级上下文压缩器：基于 Token 预算触发，将挤出上下文的旧消息总结并写入 history.jsonl。
+    Lightweight consolidation: summarizes evicted messages into history.jsonl.
+    """
 
     _MAX_CONSOLIDATION_ROUNDS = 5
 
@@ -673,7 +695,9 @@ class Consolidator:
         *,
         replay_max_messages: int | None = None,
     ) -> None:
-        """Loop: archive old messages until prompt fits within safe budget.
+        """【核心循环】不断归档（Archive）旧消息，直到当前的 Prompt 长度降到安全的 Token 预算以内。
+        
+        Loop: archive old messages until prompt fits within safe budget.
 
         The budget reserves space for completion tokens and a safety buffer
         so the LLM request never exceeds the context window.
@@ -683,13 +707,16 @@ class Consolidator:
 
         lock = self.get_lock(session.key)
         async with lock:
+            # 计算可用输入 Token 预算（总窗口 - 预留生成空间 - 安全缓冲）
             budget = self._input_token_budget
+            # 期望压缩到的目标水位 (如预算的 50%)
             target = int(budget * self.consolidation_ratio)
             last_summary = await self._consolidate_replay_overflow(
                 session,
                 replay_max_messages,
             )
             try:
+                # 估算当前 Session 会话占用的 Token 数量
                 estimated, source = self.estimate_session_prompt_tokens(
                     session,
                 )
@@ -699,6 +726,8 @@ class Consolidator:
             if estimated <= 0:
                 self._persist_last_summary(session, last_summary)
                 return
+            
+            # 如果 Token 还没超标，直接返回，什么都不做
             if estimated < budget:
                 unconsolidated_count = len(session.messages) - session.last_consolidated
                 logger.debug(
@@ -712,10 +741,12 @@ class Consolidator:
                 self._persist_last_summary(session, last_summary)
                 return
 
+            # 如果超标了，最多进行 _MAX_CONSOLIDATION_ROUNDS (5) 次压缩轮次
             for round_num in range(self._MAX_CONSOLIDATION_ROUNDS):
                 if estimated <= target:
-                    break
+                    break # 已经压缩到安全水位，退出循环
 
+                # 挑选一个安全的切割边界（确保以 User 的发言为界，不要把一轮对话切断）
                 boundary = self.pick_consolidation_boundary(session, max(1, estimated - target))
                 if boundary is None:
                     logger.debug(
@@ -727,6 +758,7 @@ class Consolidator:
 
                 end_idx = boundary[0]
 
+                # 截取需要被压缩的旧消息块 (chunk)
                 chunk = session.messages[session.last_consolidated:end_idx]
                 if not chunk:
                     break
@@ -740,6 +772,7 @@ class Consolidator:
                     source,
                     len(chunk),
                 )
+                # 调用 self.archive 触发 LLM 总结这些旧消息，并将摘要写入 history.jsonl
                 summary = await self.archive(chunk)
                 # Advance the cursor either way: on success the chunk was
                 # summarized; on failure archive() already raw-archived it as
@@ -747,6 +780,8 @@ class Consolidator:
                 # would just emit duplicate [RAW] entries.
                 if summary:
                     last_summary = summary
+                
+                # 更新 session 的游标，表示这部分消息已经被“消化”了，以后构建 Prompt 不再带上原文
                 session.last_consolidated = end_idx
                 self.sessions.save(session)
                 if not summary:
@@ -755,6 +790,7 @@ class Consolidator:
                     break
 
                 try:
+                    # 重新估算 Token，看是否还需要下一轮压缩
                     estimated, source = self.estimate_session_prompt_tokens(
                         session,
                     )
@@ -783,7 +819,11 @@ _STALE_THRESHOLD_DAYS = 14
 
 
 class Dream:
-    """Two-phase memory processor: analyze history.jsonl, then edit files via AgentRunner.
+    """双阶段“梦境”记忆处理器：
+    Phase 1 (第一阶段): 纯 LLM 分析 history.jsonl，找出需要更新的长期记忆点。
+    Phase 2 (第二阶段): 唤起一个带读写工具的子 Agent，让它去增量编辑 MEMORY.md 等文件。
+    
+    Two-phase memory processor: analyze history.jsonl, then edit files via AgentRunner.
 
     Phase 1 produces an analysis summary (plain LLM call).
     Phase 2 delegates to AgentRunner with read_file / edit_file tools so the
@@ -850,7 +890,11 @@ class Dream:
     # -- main entry ----------------------------------------------------------
 
     def _annotate_with_ages(self, content: str) -> str:
-        """Append per-line age suffixes to MEMORY.md content.
+        """【亮点机制】基于 Git Blame 计算 MEMORY.md 中每一行的“年龄”。
+        
+        如果某一行超过 14 天（_STALE_THRESHOLD_DAYS）没被修改，就给这行加上 `← 30d` 的后缀。
+        这样 LLM 在分析时，一眼就能看出哪些记忆可能是过时的废话，主动将其清理掉。
+        Append per-line age suffixes to MEMORY.md content.
 
         Each non-blank line whose age exceeds ``_STALE_THRESHOLD_DAYS`` gets a
         suffix like ``← 30d`` indicating days since last modification.
@@ -896,13 +940,16 @@ class Dream:
         return result
 
     async def run(self) -> bool:
-        """Process unprocessed history entries. Returns True if work was done."""
+        """核心处理入口：通常由后台定时器触发。
+        
+        Process unprocessed history entries. Returns True if work was done."""
         from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 
+        # 1. 查阅进度：获取上次做梦处理到的游标，提取这段时间内累积的新 history 流水
         last_cursor = self.store.get_last_dream_cursor()
         entries = self.store.read_unprocessed_history(since_cursor=last_cursor)
         if not entries:
-            return False
+            return False # 没有新记忆，继续睡
 
         batch = entries[: self.max_batch_size]
         logger.info(
@@ -918,6 +965,8 @@ class Dream:
             for e in batch
         )
 
+        # 2. 准备 Phase 1 的上下文：包含近期的对话历史，以及长期记忆文件的当前内容
+        # 注意：这里调用了 _annotate_with_ages，为 MEMORY.md 打上了时间标签
         # Current file contents + per-line age annotations (MEMORY.md only).
         # Each file is capped in the *prompt preview* only; Phase 2 still sees
         # the full file via the read_file tool.
@@ -929,6 +978,7 @@ class Dream:
             else raw_memory
         )
         current_memory = truncate_text(annotated_memory, self._MEMORY_FILE_MAX_CHARS)
+        # ... 读取 SOUL.md 和 USER.md ...
         current_soul = truncate_text(
             self.store.read_soul() or "(empty)", self._SOUL_FILE_MAX_CHARS,
         )
@@ -943,6 +993,7 @@ class Dream:
             f"## Current USER.md ({len(current_user)} chars)\n{current_user}"
         )
 
+        # 3. Phase 1：让 LLM 作为“分析师”，找出历史记录中哪些知识需要沉淀，哪些旧知识已经过时
         # Phase 1: Analyze (no skills list — dedup is Phase 2's job)
         phase1_prompt = (
             f"## Conversation History\n{history_text}\n\n{file_context}"
@@ -962,15 +1013,18 @@ class Dream:
                     },
                     {"role": "user", "content": phase1_prompt},
                 ],
-                tools=None,
+                tools=None, # 注意 Phase 1 不给任何 Tool
                 tool_choice=None,
             )
-            analysis = phase1_response.content or ""
+            analysis = phase1_response.content or "" # 得到分析结论
             logger.debug("Dream Phase 1 analysis ({} chars): {}", len(analysis), analysis[:500])
         except Exception:
             logger.exception("Dream Phase 1 failed")
             return False
 
+        # 4. Phase 2：唤起“执行者” Agent (AgentRunner)
+        # 将 Phase 1 的分析结论喂给它，并且赋予它 EditFileTool 和 ReadFileTool（在 self._tools 中）
+        # 这样大模型就不会粗暴地覆盖整个文件，而是像程序员一样精准修改具体某几行代码/文本
         # Phase 2: Delegate to AgentRunner with read_file / edit_file
         phase2_prompt = f"## Analysis Result\n{analysis}\n\n{file_context}"
 
@@ -1012,6 +1066,7 @@ class Dream:
                 if event["status"] == "ok":
                     changelog.append(f"{event['name']}: {event['detail']}")
 
+        # 5. 梦醒收尾：更新游标，防止下次重复处理
         # Only advance cursor on successful completion to prevent silent loss
         if result and result.stop_reason == "completed":
             new_cursor = batch[-1]["cursor"]
@@ -1029,6 +1084,7 @@ class Dream:
 
         self.store.compact_history()
 
+        # 6. 【安全保障】自动 Commit 记忆的变更，方便后续审计或回滚
         # Git auto-commit (only when there are actual changes)
         if changelog and self.store.git.is_initialized():
             ts = batch[-1]["timestamp"]

@@ -105,7 +105,7 @@ class Session:
         return f"[Message Time: {timestamp}]\n{content}"
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
-        """Add a message to the session."""
+        """【写】追加一条新消息到当前会话"""
         msg = {
             "role": role,
             "content": content,
@@ -122,15 +122,19 @@ class Session:
         max_tokens: int = 0,
         include_timestamps: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return unconsolidated messages for LLM input.
-
+        """【读】获取要发给 LLM 作为上下文的历史消息（也就是真正的 Prompt 上下文）。
+        
+        这里面有很多精细的“修剪”逻辑，确保大模型看到的上下文是合法且连贯的。
         History is sliced by message count first (``max_messages``), then by
         token budget from the tail (``max_tokens``) when provided.
         """
+        # 1. 剔除已经变成摘要的旧消息（避免重复和浪费 Token）
         unconsolidated = self.messages[self.last_consolidated:]
         max_messages = max_messages if max_messages > 0 else 120
+        # 2. 按条数限制截取尾部
         sliced = unconsolidated[-max_messages:]
 
+        # 3. 寻找一个合法的截断点：尽量从用户的发言（user）开始，避免从 assistant 说了一半的话开始
         # Avoid starting mid-turn when possible, except for proactive
         # assistant deliveries that the user may be replying to.
         for i, message in enumerate(sliced):
@@ -141,11 +145,13 @@ class Session:
                 sliced = sliced[start:]
                 break
 
+        # 4. 丢弃开头的孤儿工具结果（比如只有 tool_result，但前面没有 tool_call，会导致大模型报错）
         # Drop orphan tool results at the front.
         start = find_legal_message_start(sliced)
         if start:
             sliced = sliced[start:]
 
+        # 5. 数据组装与清洗：为每条消息瘦身，移除不能发给 API 的字段
         out: list[dict[str, Any]] = []
         for message in sliced:
             if message.get("_command"):
@@ -153,7 +159,9 @@ class Session:
             content = message.get("content", "")
             role = message.get("role")
             if role == "assistant" and isinstance(content, str):
+                # 清洗 assistant 的历史发言
                 content = _sanitize_assistant_replay_text(content)
+            # 插入图片占位符
             # Synthesize an ``[image: path]`` breadcrumb from the persisted
             # ``media`` kwarg so LLM replay still sees *something* where the
             # image used to be. Without this, an image-only user turn
@@ -170,12 +178,15 @@ class Session:
             if role == "assistant" and isinstance(content, str) and not content.strip():
                 if not any(key in message for key in ("tool_calls", "reasoning_content", "thinking_blocks")):
                     continue
+            
+            # 组装符合 OpenAI 规范的 entry 字典
             entry: dict[str, Any] = {"role": message["role"], "content": content}
             for key in ("tool_calls", "tool_call_id", "name", "reasoning_content", "thinking_blocks"):
                 if key in message:
                     entry[key] = message[key]
             out.append(entry)
 
+        # 6. 如果有 Token 预算限制 (max_tokens)，从后往前数，剔除超标的旧消息
         if max_tokens > 0 and out:
             kept: list[dict[str, Any]] = []
             used = 0
@@ -263,7 +274,11 @@ class Session:
         on_archive: Any = None,
         limit: int = FILE_MAX_MESSAGES,
     ) -> None:
-        """Bound session message growth by archiving and trimming old prefixes."""
+        """【保底截断】防止单个 Session 文件无限膨胀（硬上限默认 2000 条）。
+        
+        如果真的超了，就会触发截断，并通过 on_archive 回调把被砍掉的消息扔进 history.jsonl 里。
+        Bound session message growth by archiving and trimming old prefixes.
+        """
         if limit <= 0 or len(self.messages) <= limit:
             return
 
@@ -290,8 +305,7 @@ class Session:
 
 
 class SessionManager:
-    """
-    Manages conversation sessions.
+    """管理会话：负责将 Session 对象存入磁盘的 jsonl 文件中，或者从文件中恢复。
 
     Sessions are stored as JSONL files in the sessions directory.
     """
@@ -316,7 +330,7 @@ class SessionManager:
         return self.legacy_sessions_dir / f"{self.safe_key(key)}.jsonl"
 
     def get_or_create(self, key: str) -> Session:
-        """
+        """获取或创建会话
         Get an existing session or create a new one.
 
         Args:
@@ -336,7 +350,7 @@ class SessionManager:
         return session
 
     def _load(self, key: str) -> Session | None:
-        """Load a session from disk."""
+        """【反序列化】从 .jsonl 文件加载 Session"""
         path = self._get_session_path(key)
         if not path.exists():
             legacy_path = self._get_legacy_session_path(key)
@@ -358,6 +372,7 @@ class SessionManager:
             last_consolidated = 0
 
             with open(path, encoding="utf-8") as f:
+                # 逐行读取 jsonl
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -365,12 +380,15 @@ class SessionManager:
 
                     data = json.loads(line)
 
+                    # 第一行通常是元数据 (metadata)
                     if data.get("_type") == "metadata":
                         metadata = data.get("metadata", {})
                         created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
                         updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None
+                        # 恢复已压缩的进度
                         last_consolidated = data.get("last_consolidated", 0)
                     else:
+                        # 后面的每一行就是一条真实的 message
                         messages.append(data)
 
             return Session(
@@ -383,13 +401,18 @@ class SessionManager:
             )
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
+            # 如果文件损坏（比如进程突然被杀导致 JSON 没写完），调用 _repair 尝试抢救
             repaired = self._repair(key)
             if repaired is not None:
                 logger.info("Recovered session {} from corrupt file ({} messages)", key, len(repaired.messages))
             return repaired
 
     def _repair(self, key: str) -> Session | None:
-        """Attempt to recover a session from a corrupt JSONL file."""
+        """【容错机制】尝试修复损坏的 jsonl 文件。
+        
+        因为是逐行存储的 jsonl，所以即使最后一行没写完损坏了，只要跳过那一行（try...except json.JSONDecodeError），
+        前面的所有聊天记录依然可以完美抢救回来。
+        """
         path = self._get_session_path(key)
         if not path.exists():
             return None
@@ -454,7 +477,9 @@ class SessionManager:
         }
 
     def save(self, session: Session, *, fsync: bool = False) -> None:
-        """Save a session to disk atomically.
+        """【序列化】原子化地将会话保存到磁盘。
+        
+        Save a session to disk atomically.
 
         When *fsync* is ``True`` the final file and its parent directory are
         explicitly flushed to durable storage.  This is intentionally off by
@@ -467,7 +492,9 @@ class SessionManager:
         tmp_path = path.with_suffix(".jsonl.tmp")
 
         try:
+            # 1. 先写到一个 .tmp 临时文件里
             with open(tmp_path, "w", encoding="utf-8") as f:
+                # 第一行写 metadata
                 metadata_line = {
                     "_type": "metadata",
                     "key": session.key,
@@ -477,12 +504,16 @@ class SessionManager:
                     "last_consolidated": session.last_consolidated
                 }
                 f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
+                
+                # 后面的行逐行写 messages
                 for msg in session.messages:
                     f.write(json.dumps(msg, ensure_ascii=False) + "\n")
-                if fsync:
+                
+                if fsync: # 强制刷入磁盘（防掉电）
                     f.flush()
                     os.fsync(f.fileno())
 
+            # 2. 写完后，原子化替换掉原来的正式文件。这样可以保证文件绝不会处于半写半空的状态。
             os.replace(tmp_path, path)
 
             if fsync:
