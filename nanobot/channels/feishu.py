@@ -1469,6 +1469,19 @@ class FeishuChannel(BaseChannel):
                 if self.config.done_emoji:
                     await self._add_reaction(message_id, self.config.done_emoji)
 
+            # 清理注入的 follow-up 消息的 reaction（如果有的话）
+            for injected_id in meta.get("_injected_message_ids") or []:
+                injected_reaction_id = self._reaction_ids.pop(injected_id, None)
+                self.logger.debug(
+                    "Removing reaction {} from injected message {}",
+                    injected_reaction_id,
+                    injected_id,
+                )
+                if injected_reaction_id:
+                    await self._remove_reaction(injected_id, injected_reaction_id)
+                if self.config.done_emoji:
+                    await self._add_reaction(injected_id, self.config.done_emoji)
+
             buf = self._stream_bufs.pop(stream_key, None)
             if not buf or not buf.text:
                 return

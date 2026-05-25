@@ -268,6 +268,10 @@ class AgentLoop:
         # When a session has an active task, new messages for that session
         # are routed here instead of creating a new task.
         self._pending_queues: dict[str, asyncio.Queue] = {}
+        # Track message_ids of follow-up messages routed to pending queues
+        # so their channel reactions (e.g. Feishu thumbsup) can be cleaned up
+        # when the stream ends.  Keyed by session_key.
+        self._pending_message_ids: dict[str, list[str]] = {}
         # NANOBOT_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("NANOBOT_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
@@ -866,6 +870,11 @@ class AgentLoop:
                         "Routed follow-up message to pending queue for session {}",
                         effective_key,
                     )
+                    # Track the injected message's message_id so its channel
+                    # reaction can be cleaned up when the stream ends.
+                    _msg_id = msg.metadata.get("message_id") if msg.metadata else None
+                    if _msg_id:
+                        self._pending_message_ids.setdefault(effective_key, []).append(str(_msg_id))
                     continue
             # Compute the effective session key before dispatching
             # This ensures /stop command can find tasks correctly when unified session is enabled
@@ -919,6 +928,13 @@ class AgentLoop:
                             meta["_stream_end"] = True
                             meta["_resuming"] = resuming
                             meta["_stream_id"] = _current_stream_id()
+                            # Attach message_ids of any injected follow-up messages so
+                            # channels can clean up their reactions together with the
+                            # primary message when the stream finishes.
+                            if not resuming:
+                                injected = self._pending_message_ids.pop(session_key, [])
+                                if injected:
+                                    meta["_injected_message_ids"] = injected
                             await self.bus.publish_outbound(OutboundMessage(
                                 channel=msg.channel, chat_id=msg.chat_id,
                                 content="",
@@ -1021,6 +1037,8 @@ class AgentLoop:
                         "Re-published {} leftover message(s) to bus for session {}",
                         leftover, session_key,
                     )
+            # Clean up any untracked injected message ids for this session.
+            self._pending_message_ids.pop(session_key, None)
             await publish_turn_run_status(self.bus, msg, "idle")
             self._pending_turn_latency_ms.pop(session_key, None)
 
