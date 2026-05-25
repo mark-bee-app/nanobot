@@ -533,7 +533,10 @@ class FeishuChannel(BaseChannel):
         return self._is_bot_mentioned(message)
 
     def _add_reaction_sync(self, message_id: str, emoji_type: str) -> str | None:
-        """Sync helper for adding reaction (runs in thread pool)."""
+        """同步添加表情（在线程池中执行）。
+
+        业务逻辑：调用飞书 API 给指定消息添加表情，成功返回 reaction_id，
+        失败返回 None。reaction_id 后续用于取消表情时定位。"""
         from lark_oapi.api.im.v1 import (
             CreateMessageReactionRequest,
             CreateMessageReactionRequestBody,
@@ -567,13 +570,12 @@ class FeishuChannel(BaseChannel):
             return None
 
     async def _add_reaction(self, message_id: str, emoji_type: str = "THUMBSUP") -> str | None:
-        """Add a reaction emoji to a message.
+        """异步给消息添加表情（在线程池中执行同步 API 调用）。
 
-        Returns the reaction_id on success, None on failure.
-        When called via a tracked background task, the returned reaction_id
-        is stored in ``_reaction_ids`` for later cleanup by ``send_delta``.
-
-        Common emoji types: THUMBSUP, OK, EYES, DONE, OnIt, HEART
+        业务逻辑：
+        - 收到用户消息时立即调用，给用户消息添加 "处理中" 表情（默认 THUMBSUP）
+        - 返回的 reaction_id 会被存入 _reaction_ids，供后续取消表情时使用
+        - 常见表情类型：THUMBSUP, OK, EYES, DONE, OnIt, HEART
         """
         if not self._client:
             return None
@@ -604,10 +606,12 @@ class FeishuChannel(BaseChannel):
             self.logger.debug("Error removing reaction: {}", e)
 
     async def _remove_reaction(self, message_id: str, reaction_id: str) -> None:
-        """
-        Remove a reaction emoji from a message (non-blocking).
+        """异步取消消息上的表情（在线程池中执行同步 API 调用）。
 
-        Used to clear the "processing" indicator after bot replies.
+        业务逻辑：
+        - Agent 回复完成后调用，移除用户消息上的 "处理中" 表情
+        - 需要 message_id 和 reaction_id 两个参数定位要删除的表情
+        - 如果配置 done_emoji，取消后还会添加一个完成表情
         """
         if not self._client or not reaction_id:
             return
@@ -626,12 +630,22 @@ class FeishuChannel(BaseChannel):
             self.logger.warning("Background task failed: {}", exc)
 
     def _on_reaction_added(self, message_id: str, task: asyncio.Task) -> None:
-        """Callback: store reaction_id after background add-reaction completes."""
+        """回调：异步添加表情任务完成后，将 reaction_id 存入缓存。
+
+        业务逻辑：
+        - 收到用户消息时，会异步调用 _add_reaction 添加 "处理中" 表情
+        - 表情添加完成后，通过此回调将 reaction_id 存入 _reaction_ids
+        - key 是用户原始消息的 message_id，value 是飞书返回的 reaction_id
+        - 当 _reaction_ids 超过 500 条时，会移除最早的条目防止内存无限增长
+        - 后续 Agent 回复完成时，通过 message_id 查找 reaction_id 来取消表情
+        """
         if task.cancelled():
+            self.logger.debug("Reaction task cancelled for message {}", message_id)
             return
         # Failures already logged by _on_background_task_done.
         with suppress(Exception):
             reaction_id = task.result()
+            self.logger.debug("Added reaction {} to message {}", reaction_id, message_id)
             if reaction_id:
                 self._reaction_ids[message_id] = reaction_id
         # Trim cache to prevent unbounded growth
@@ -1170,11 +1184,15 @@ class FeishuChannel(BaseChannel):
             return None
 
     def _reply_message_sync(self, parent_message_id: str, msg_type: str, content: str, *, reply_in_thread: bool = False) -> bool:
-        """Reply to an existing Feishu message using the Reply API (synchronous).
+        """同步回复消息到飞书（使用 Reply API，在线程池中执行）。
 
-        Args:
-            reply_in_thread: If True, reply as a thread/topic message
-                in the Feishu client.
+        业务逻辑：
+        - 调用飞书 OpenAPI 的 reply-message 接口，回复到指定的父消息
+        - 与 _send_message_sync 的区别：
+          - _send_message_sync 是独立发送消息，需要指定接收者
+          - _reply_message_sync 是回复到已有消息，会自动关联到同一会话
+        - reply_in_thread=True 时，在飞书客户端中会创建话题/线程
+        - 常用于：在群聊中回复用户消息，保持上下文关联
         """
         from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
 
@@ -1222,7 +1240,15 @@ class FeishuChannel(BaseChannel):
     def _send_message_sync(
         self, receive_id_type: str, receive_id: str, msg_type: str, content: str
     ) -> str | None:
-        """Send a single message and return the message_id on success."""
+        """同步发送消息到飞书（在线程池中执行）。
+
+        业务逻辑：
+        - 调用飞书 OpenAPI 的 create-message 接口发送消息
+        - receive_id_type 指定接收者类型："chat_id"（群聊）或 "open_id"（私聊）
+        - msg_type 指定消息类型：text、post、interactive、image、audio、file、media 等
+        - content 是 JSON 格式的消息内容
+        - 成功返回飞书返回的 message_id，失败返回 None
+        """
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
         try:
@@ -1263,12 +1289,14 @@ class FeishuChannel(BaseChannel):
         *,
         reply_in_thread: bool = False,
     ) -> str | None:
-        """Create a CardKit streaming card, send it to chat, return card_id.
+        """创建 CardKit 流式卡片并发送到飞书，返回 card_id。
 
-        When *reply_message_id* is provided the card is delivered via the
-        reply API. *reply_in_thread* controls whether Feishu creates a
-        thread/topic for that reply. Otherwise the plain create-message API is
-        used.
+        业务逻辑：
+        - 调用飞书 CardKit API 创建一个支持流式更新的卡片
+        - 卡片创建后，需要通过 _stream_update_text_sync 不断更新内容
+        - 最后通过 _close_streaming_mode_sync 关闭流式模式
+        - reply_message_id 指定时，卡片会作为回复消息发送
+        - 返回的 card_id 用于后续的流式更新操作
         """
         from lark_oapi.api.cardkit.v1 import CreateCardRequest, CreateCardRequestBody
 
@@ -1321,7 +1349,14 @@ class FeishuChannel(BaseChannel):
             return None
 
     def _stream_update_text_sync(self, card_id: str, content: str, sequence: int) -> bool:
-        """Stream-update the markdown element on a CardKit card (typewriter effect)."""
+        """更新 CardKit 流式卡片的内容（打字机效果）。
+
+        业务逻辑：
+        - 调用飞书 CardKit API 更新指定卡片的 markdown 内容
+        - sequence 必须严格递增，每次更新都要用新的 sequence 值
+        - 这个 API 实现了打字机效果：内容逐步显示在卡片中
+        - 更新频率由 _STREAM_EDIT_INTERVAL（0.5秒）控制，避免频繁调用
+        """
         from lark_oapi.api.cardkit.v1 import (
             ContentCardElementRequest,
             ContentCardElementRequestBody,
@@ -1355,12 +1390,16 @@ class FeishuChannel(BaseChannel):
             return False
 
     def _close_streaming_mode_sync(self, card_id: str, sequence: int) -> bool:
-        """Turn off CardKit streaming_mode so the chat list preview exits the streaming placeholder.
+        """关闭 CardKit 流式模式，使会话列表预览退出流式占位状态。
 
-        Per Feishu docs, streaming cards keep a generating-style summary in the session list until
-        streaming_mode is set to false via card settings (after final content update).
-        Sequence must strictly exceed the previous card OpenAPI operation on this entity.
+        业务逻辑：
+        - 根据飞书文档，流式卡片在会话列表中会保持"生成中"的占位摘要
+        - 必须通过 card settings 将 streaming_mode 设为 false 才能结束这种状态
+        - sequence 必须严格大于此前对该卡片的任何 OpenAPI 操作序列号
+        - 通常在 send_delta 的 _stream_end 分支中，发送最终内容后调用
         """
+        # 英文说明：Per Feishu docs, streaming cards keep a generating-style summary
+        # in the session list until streaming_mode is set to false via card settings.
         from lark_oapi.api.cardkit.v1 import SettingsCardRequest, SettingsCardRequestBody
 
         settings_payload = json.dumps({"config": {"streaming_mode": False}}, ensure_ascii=False)
@@ -1394,13 +1433,17 @@ class FeishuChannel(BaseChannel):
     async def send_delta(
         self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
     ) -> None:
-        """Progressive streaming via CardKit: create card on first delta, stream-update on subsequent.
+        """流式发送消息到飞书（支持增量更新）。
 
-        Supported metadata keys:
-            _stream_end: Finalize the streaming card.
-            _tool_hint:  Delta is a formatted tool hint (for display only).
-            message_id:  Original message id (used with _stream_end for reaction cleanup).
-            chat_type:   "group" or "p2p" — controls reply-in-thread for streaming cards.
+        业务逻辑：
+        - 这是飞书渠道实现流式输出的核心方法
+        - 第一次调用时创建 CardKit 流式卡片
+        - 后续调用时更新卡片内容（打字机效果）
+        - _stream_end 标志表示流结束，此时会：
+          1. 取消用户消息上的 "处理中" 表情
+          2. 可选添加完成表情
+          3. 关闭流式模式，发送最终内容
+        - 如果流式卡片创建失败，会回退到普通 interactive 卡片
         """
         if not self._client:
             return
@@ -1409,28 +1452,32 @@ class FeishuChannel(BaseChannel):
         loop = asyncio.get_running_loop()
         rid_type = "chat_id" if chat_id.startswith("oc_") else "open_id"
 
-        # --- stream end: final update or fallback ---
+        # --- stream end: 流式输出结束，处理表情取消 ---
         if meta.get("_stream_end"):
             message_id = meta.get("message_id")
-            # Only finalize the OnIt -> DONE reaction transition on the truly
-            # final stream end. _resuming=True means the agent will keep
-            # working (more tool-call rounds), so leave the reaction state
-            # in place — otherwise the OnIt indicator disappears prematurely
-            # and the DONE reaction fires after every tool call.
+            # 只有在真正最终结束时才取消 "处理中" 表情并添加完成表情。
+            # _resuming=True 表示 Agent 还要继续执行（更多 tool-call 轮次），
+            # 此时不应取消表情，否则 "处理中" 指示器会过早消失。
             if message_id and not meta.get("_resuming"):
+                # 通过 message_id 从 _reaction_ids 中查找对应的 reaction_id
+                # 然后用 _remove_reaction 取消用户消息上的表情
                 reaction_id = self._reaction_ids.pop(message_id, None)
+                self.logger.debug("Removing reaction {} from message {}", reaction_id, message_id)
                 if reaction_id:
                     await self._remove_reaction(message_id, reaction_id)
-                # Add completion emoji if configured
+                # 如果配置了完成表情（done_emoji），在取消后添加
                 if self.config.done_emoji:
                     await self._add_reaction(message_id, self.config.done_emoji)
 
             buf = self._stream_bufs.pop(stream_key, None)
             if not buf or not buf.text:
                 return
-            # Try to finalize via streaming card; if that fails (e.g.
-            # streaming mode was closed by Feishu due to timeout), fall
-            # back to sending a regular interactive card.
+            # 尝试通过流式卡片完成最终更新；如果失败（例如飞书因超时关闭了流式模式），
+            # 则回退到发送普通 interactive 卡片。
+            # 业务逻辑：
+            # 1. 先用 _stream_update_text_sync 发送最终完整内容（sequence 递增）
+            # 2. 成功后用 _close_streaming_mode_sync 关闭流式模式（sequence 再次递增）
+            # 3. 如果第1步失败，回退到普通卡片发送
             if buf.card_id:
                 buf.sequence += 1
                 ok = await loop.run_in_executor(
@@ -1441,6 +1488,7 @@ class FeishuChannel(BaseChannel):
                     buf.sequence,
                 )
                 if ok:
+                    # 最终内容更新成功，关闭流式模式以退出"生成中"状态
                     buf.sequence += 1
                     await loop.run_in_executor(
                         None,
@@ -1453,6 +1501,11 @@ class FeishuChannel(BaseChannel):
                     "Streaming card {} final update failed, falling back to regular card",
                     buf.card_id,
                 )
+            # 流式卡片不可用，回退到普通 interactive 卡片发送
+            # 业务逻辑：
+            # - 将整个内容拆分成多个卡片（每个卡片最多一个表格）
+            # - 如果原消息在话题中，使用 Reply API 回复到话题
+            # - 如果配置了 reply_to_message，在群聊中创建新话题
             for chunk in self._split_elements_by_table_limit(
                 self._build_card_elements(buf.text)
             ):
@@ -1460,10 +1513,9 @@ class FeishuChannel(BaseChannel):
                     {"config": {"wide_screen_mode": True}, "elements": chunk},
                     ensure_ascii=False,
                 )
-                # Fallback replies stay in existing topics, but only create a
-                # new topic when reply-to-message is enabled.
                 fallback_msg_id = self._thread_reply_target(meta)
                 if fallback_msg_id:
+                    # 使用 Reply API 保持话题上下文
                     await loop.run_in_executor(
                         None, lambda: self._reply_message_sync(
                             fallback_msg_id, "interactive", card,
@@ -1471,12 +1523,18 @@ class FeishuChannel(BaseChannel):
                         ),
                     )
                 else:
+                    # 使用 CreateMessage API 直接发送
                     await loop.run_in_executor(
                         None, self._send_message_sync, rid_type, chat_id, "interactive", card
                     )
             return
 
-        # --- accumulate delta ---
+        # --- accumulate delta: 累积增量内容并更新流式卡片 ---
+        # 业务逻辑：
+        # 1. 第一次调用时，创建 CardKit 流式卡片（通过 _create_streaming_card_sync）
+        # 2. 后续调用时，按 _STREAM_EDIT_INTERVAL（0.5秒）节流，通过
+        #    _stream_update_text_sync 更新卡片内容
+        # 3. 所有 API 调用都通过 run_in_executor 在线程池中执行，避免阻塞事件循环
         buf = self._stream_bufs.get(stream_key)
         if buf is None:
             buf = _FeishuStreamBuf()
@@ -1487,8 +1545,9 @@ class FeishuChannel(BaseChannel):
 
         now = time.monotonic()
         if buf.card_id is None:
-            # Use the Reply API for existing topics, and only create new topics
-            # when reply-to-message is enabled.
+            # 首次发送：创建流式卡片
+            # - 如果消息在话题中（有 thread_id），使用 Reply API 回复到原话题
+            # - 如果配置了 reply_to_message，在群聊中创建新话题
             use_reply_in_thread = self._should_use_reply_in_thread(meta)
             reply_msg_id = self._thread_reply_target(meta)
             card_id = await loop.run_in_executor(
@@ -1503,11 +1562,14 @@ class FeishuChannel(BaseChannel):
             if card_id:
                 buf.card_id = card_id
                 buf.sequence = 1
+                # 创建卡片后立即发送第一次内容更新（sequence=1）
                 await loop.run_in_executor(
                     None, self._stream_update_text_sync, card_id, buf.text, 1
                 )
                 buf.last_edit = now
         elif (now - buf.last_edit) >= self._STREAM_EDIT_INTERVAL:
+            # 节流窗口已过，发送下一次内容更新
+            # sequence 必须严格递增，否则飞书 API 会报错
             buf.sequence += 1
             await loop.run_in_executor(
                 None, self._stream_update_text_sync, buf.card_id, buf.text, buf.sequence
@@ -1515,7 +1577,15 @@ class FeishuChannel(BaseChannel):
             buf.last_edit = now
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through Feishu, including media (images/files) if present."""
+        """发送消息到飞书（包括文本、媒体文件等）。
+
+        业务逻辑：
+        - 这是飞书渠道对外暴露的主发送接口，由 Channel Manager 调用
+        - 支持发送：文本、图片、音频、视频、文件、交互卡片等
+        - 消息格式自动检测：短文本用 text，中等长度带链接用 post，复杂内容用 interactive 卡片
+        - 如果配置了 reply_to_message，第一条消息会引用用户的原始消息
+        - 如果消息在话题中，会自动使用 Reply API 保持话题上下文
+        """
         if not self._client:
             self.logger.warning("client not initialized")
             return
@@ -1540,9 +1610,11 @@ class FeishuChannel(BaseChannel):
                         "\n\n" + self._format_tool_hint_delta(hint) + "\n\n",
                     )
                     return
-                # No active streaming card — send as a regular interactive card
-                # with the same 🔧 prefix style. Existing topics stay threaded;
-                # new topics are created only when reply-to-message is enabled.
+                # 没有活跃的流式卡片 — 作为普通 interactive 卡片发送
+                # 业务逻辑：
+                # - 使用相同的 🔧 前缀样式
+                # - 如果消息在已有话题中，使用 Reply API 保持话题上下文
+                # - 只有配置了 reply_to_message 时，才在群聊中创建新话题
                 card = json.dumps(
                     {"config": {"wide_screen_mode": True}, "elements": [
                         {"tag": "markdown", "content": self._format_tool_hint_delta(hint)},
@@ -1551,6 +1623,7 @@ class FeishuChannel(BaseChannel):
                 )
                 _th_msg_id = self._thread_reply_target(msg.metadata)
                 if _th_msg_id:
+                    # 在话题中：使用 Reply API 回复到原消息，保持话题连续性
                     await loop.run_in_executor(
                         None, lambda: self._reply_message_sync(
                             _th_msg_id, "interactive", card,
@@ -1558,6 +1631,7 @@ class FeishuChannel(BaseChannel):
                         ),
                     )
                 else:
+                    # 不在话题中：使用 CreateMessage API 直接发送
                     await loop.run_in_executor(
                         None, self._send_message_sync, receive_id_type, msg.chat_id, "interactive", card
                     )
@@ -1579,6 +1653,11 @@ class FeishuChannel(BaseChannel):
 
             first_send = True  # tracks whether the reply has already been used
 
+            # _do_send 是一个内部辅助函数，决定用 Reply API 还是 Create API 发送消息
+            # 业务逻辑：
+            # - 如果配置了 reply_to_message 或消息在话题中，优先使用 Reply API
+            # - Reply API 的好处：消息会关联到用户原始消息，形成对话上下文
+            # - 只有第一条消息使用 Reply，后续消息使用 Create 避免重复引用
             def _do_send(m_type: str, content: str) -> None:
                 """Send via reply (first message) or create (subsequent).
 
@@ -1588,7 +1667,7 @@ class FeishuChannel(BaseChannel):
                 """
                 nonlocal first_send
                 if reply_message_id:
-                    # If we're in a topic, always use reply to stay in the topic
+                    # 消息在已有话题中：始终使用 Reply API 保持话题上下文
                     if has_thread_id:
                         ok = self._reply_message_sync(
                             reply_message_id, m_type, content,
@@ -1597,7 +1676,8 @@ class FeishuChannel(BaseChannel):
                         if ok:
                             return
                     elif first_send:
-                        # If we're not in a topic but replying to message, only first uses reply
+                        # 第一条消息使用 Reply API（引用用户原始消息或创建新话题）
+                        # 后续消息使用 Create API，避免重复引用气泡
                         first_send = False
                         ok = self._reply_message_sync(
                             reply_message_id, m_type, content,
@@ -1605,17 +1685,26 @@ class FeishuChannel(BaseChannel):
                         )
                         if ok:
                             return
-                    # Fall back to regular send if reply fails
+                    # Reply API 失败时回退到普通 CreateMessage API
                 self._send_message_sync(receive_id_type, msg.chat_id, m_type, content)
 
+            # 发送媒体文件（图片、音频、视频、文档等）
+            # 业务逻辑：
+            # - 先上传文件到飞书，获取 file_key 或 image_key
+            # - 然后根据文件类型选择对应的消息类型发送
+            # - 图片用 image 类型，音频用 audio，视频用 media，其他用 file
+            # - 所有发送都通过 _do_send，它会自动决定用 Reply API 还是 Create API
             for file_path in msg.media:
                 if not os.path.isfile(file_path):
                     self.logger.warning("Media file not found: {}", file_path)
                     continue
                 ext = os.path.splitext(file_path)[1].lower()
                 if ext in self._IMAGE_EXTS:
+                    # 上传图片到飞书，获取 image_key
                     key = await loop.run_in_executor(None, self._upload_image_sync, file_path)
                     if key:
+                        # 发送图片消息：使用 image 类型，内容为 {"image_key": "xxx"}
+                        # _do_send 会自动选择 Reply API（第一条消息/话题内）或 Create API
                         await loop.run_in_executor(
                             None,
                             _do_send,
@@ -1623,17 +1712,19 @@ class FeishuChannel(BaseChannel):
                             json.dumps({"image_key": key}, ensure_ascii=False),
                         )
                 else:
+                    # 上传文件到飞书，获取 file_key
                     key = await loop.run_in_executor(None, self._upload_file_sync, file_path)
                     if key:
-                        # Feishu's OpenAPI names video messages "media".
-                        # Use "audio" for audio, "media" for video, "file" for documents.
-                        # Feishu requires these specific msg_types for inline playback.
+                        # Feishu OpenAPI 中视频消息的类型名为 "media"
+                        # 音频用 "audio"，视频用 "media"，文档等其他文件用 "file"
+                        # 飞书要求这些特定的 msg_type 才能实现 inline 播放
                         if ext in self._AUDIO_EXTS:
                             media_type = "audio"
                         elif ext in self._VIDEO_EXTS:
                             media_type = "media"
                         else:
                             media_type = "file"
+                        # 发送文件消息：内容为 {"file_key": "xxx"}
                         await loop.run_in_executor(
                             None,
                             _do_send,
@@ -1641,21 +1732,31 @@ class FeishuChannel(BaseChannel):
                             json.dumps({"file_key": key}, ensure_ascii=False),
                         )
 
+            # 发送文本内容（根据内容长度和复杂度选择不同格式）
+            # 业务逻辑：
+            # - text 格式：短纯文本（≤200字符），最轻量
+            # - post 格式：中等长度带链接的内容，支持富文本
+            # - interactive 格式：复杂内容（代码块、表格、标题等），使用卡片渲染
             if msg.content and msg.content.strip():
                 fmt = self._detect_msg_format(msg.content)
 
                 if fmt == "text":
-                    # Short plain text – send as simple text message
+                    # 短纯文本（≤200字符）：发送 text 类型消息
+                    # 最轻量，不支持任何格式，适合简短回复
                     text_body = json.dumps({"text": msg.content.strip()}, ensure_ascii=False)
                     await loop.run_in_executor(None, _do_send, "text", text_body)
 
                 elif fmt == "post":
-                    # Medium content with links – send as rich-text post
+                    # 中等长度带链接的内容：发送 post 类型富文本消息
+                    # 支持 <a> 标签渲染链接，但不支持代码块、表格、标题等复杂格式
                     post_body = self._markdown_to_post(msg.content)
                     await loop.run_in_executor(None, _do_send, "post", post_body)
 
                 else:
-                    # Complex / long content – send as interactive card
+                    # 复杂 / 长内容：发送 interactive 卡片消息
+                    # 支持完整 markdown 渲染：代码块、表格、标题、加粗、斜体等
+                    # 由于飞书卡片限制每个卡片最多一个表格，_split_elements_by_table_limit
+                    # 会将包含多个表格的内容拆分成多个卡片分别发送
                     elements = self._build_card_elements(msg.content)
                     for chunk in self._split_elements_by_table_limit(elements):
                         card = {"config": {"wide_screen_mode": True}, "elements": chunk}
@@ -1687,6 +1788,7 @@ class FeishuChannel(BaseChannel):
 
             self.logger.debug("raw message: {}", message.content)
             self.logger.debug("mentions: {}", getattr(message, "mentions", None))
+            self.logger.debug("message_id: {}", message.message_id)
 
             message_id = message.message_id
 
@@ -1726,7 +1828,13 @@ class FeishuChannel(BaseChannel):
                     )
                 return
 
-            # Add reaction (non-blocking — tracked background task)
+            # 添加 "处理中" 表情（非阻塞，通过后台任务跟踪）
+            # 业务逻辑：
+            # 1. 收到用户消息后立即添加 THUMBSUP 表情，表示正在处理
+            # 2. _add_reaction 是异步调用，通过 create_task 在后台执行
+            # 3. 任务完成后，_on_reaction_added 回调将 reaction_id 存入 _reaction_ids
+            # 4. Agent 回复完成后，send_delta 的 _stream_end 分支通过 message_id
+            #    查找 reaction_id，然后调用 _remove_reaction 取消表情
             task = asyncio.create_task(
                 self._add_reaction(message_id, self.config.react_emoji)
             )

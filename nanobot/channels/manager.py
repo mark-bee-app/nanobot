@@ -358,6 +358,8 @@ class ChannelManager:
     @staticmethod
     async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
+
+        logger.debug(f"Sending {msg.channel} message to {msg.chat_id} with content: {msg.content}")
         if msg.metadata.get("_reasoning_end"):
             await channel.send_reasoning_end(msg.chat_id, msg.metadata)
         elif msg.metadata.get("_reasoning_delta"):
