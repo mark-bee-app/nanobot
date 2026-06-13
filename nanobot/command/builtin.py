@@ -6,12 +6,15 @@ import asyncio
 import os
 import sys
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 
 from nanobot import __version__
 from nanobot.bus.events import OutboundMessage
 from nanobot.command.router import CommandContext, CommandRouter
+from nanobot.security.workspace_policy import require_path_within
 from nanobot.utils.helpers import build_status_content
 from nanobot.utils.restart import set_restart_notice_to_env
 
@@ -110,6 +113,13 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "List, approve, deny or revoke pairing requests.",
         "shield",
         "[list|approve <code>|deny <code>|revoke <user_id>]",
+    ),
+    BuiltinCommandSpec(
+        "/git",
+        "Git operations",
+        "Run git commands in the workspace: status, diff, log, add, commit, pull, push, sync.",
+        "git-branch",
+        "[status|diff|log|add|commit|pull|push|sync|help]",
     ),
 )
 
@@ -617,6 +627,245 @@ async def cmd_help(ctx: CommandContext) -> OutboundMessage:
     )
 
 
+async def cmd_git(ctx: CommandContext) -> OutboundMessage:
+    """Run a whitelist of git commands inside the configured workspace.
+
+    Usage:
+        /git status
+        /git diff
+        /git log [n]
+        /git add <path> [<path> ...]
+        /git commit <message>
+        /git pull
+        /git push
+        /git sync [message]
+        /git help
+    """
+    msg = ctx.msg
+    loop = ctx.loop
+    metadata = {**dict(msg.metadata or {}), "render_as": "text"}
+
+    workspace = Path(loop.workspace).expanduser().resolve(strict=False)
+    raw_args = ctx.args.strip()
+
+    if not raw_args or raw_args.lower() in {"help", "--help", "-h"}:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=_build_git_help_text(),
+            metadata=metadata,
+        )
+
+    parts = raw_args.split(maxsplit=1)
+    subcommand = parts[0].lower()
+    sub_args = parts[1] if len(parts) > 1 else ""
+
+    handlers: dict[str, Callable[[str], Awaitable[str]]] = {
+        "status": _git_status,
+        "diff": _git_diff,
+        "log": _git_log,
+        "add": _git_add,
+        "commit": _git_commit,
+        "pull": _git_pull,
+        "push": _git_push,
+        "sync": _git_sync,
+    }
+
+    handler = handlers.get(subcommand)
+    if handler is None:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=(
+                f"Unknown git subcommand `{subcommand}`.\n\n"
+                f"{_build_git_help_text()}"
+            ),
+            metadata=metadata,
+        )
+
+    try:
+        content = await handler(sub_args)
+    except Exception as exc:
+        content = f"Git command failed: {exc}"
+
+    return OutboundMessage(
+        channel=msg.channel,
+        chat_id=msg.chat_id,
+        content=content,
+        metadata=metadata,
+    )
+
+
+def _build_git_help_text() -> str:
+    return (
+        "## Git commands\n"
+        "- `/git status` — show working tree status\n"
+        "- `/git diff` — show unstaged changes\n"
+        "- `/git log [n]` — show last n commits (default 10, max 50)\n"
+        "- `/git add <path> [<path> ...]` — stage files or directories\n"
+        "- `/git commit <message>` — commit staged changes\n"
+        "- `/git pull` — pull from upstream\n"
+        "- `/git push` — push to upstream\n"
+        "- `/git sync [message]` — pull, commit all changes, and push\n"
+        "- `/git help` — show this help"
+    )
+
+
+async def _run_git(workspace: Path, *args: str, timeout: int = 60) -> tuple[int, str, str]:
+    """Run a git subprocess in *workspace* and return (exit_code, stdout, stderr)."""
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "git", *args,
+            cwd=str(workspace),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("git executable not found on PATH") from exc
+
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(), timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        process.kill()
+        with suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(process.wait(), timeout=5.0)
+        raise RuntimeError(f"git command timed out after {timeout}s")
+
+    return (
+        process.returncode or 0,
+        stdout.decode("utf-8", errors="replace"),
+        stderr.decode("utf-8", errors="replace"),
+    )
+
+
+def _format_git_output(exit_code: int, stdout: str, stderr: str) -> str:
+    parts: list[str] = []
+    if stdout.strip():
+        parts.append(stdout.rstrip())
+    if stderr.strip():
+        parts.append(f"STDERR:\n{stderr.rstrip()}")
+    if not parts:
+        parts.append("(no output)")
+    parts.append(f"Exit code: {exit_code}")
+    return "\n\n".join(parts)
+
+
+async def _git_status(workspace: Path, args: str) -> str:
+    if args.strip():
+        return "Usage: `/git status`"
+    code, out, err = await _run_git(workspace, "status", "--short", "--branch")
+    if code == 0 and not out.strip() and not err.strip():
+        return "Working tree clean."
+    return _format_git_output(code, out, err)
+
+
+async def _git_diff(workspace: Path, args: str) -> str:
+    if args.strip():
+        return "Usage: `/git diff`"
+    code, out, err = await _run_git(workspace, "diff")
+    if code == 0 and not out.strip():
+        return "No unstaged changes."
+    return _format_git_output(code, out, err)
+
+
+async def _git_log(workspace: Path, args: str) -> str:
+    count = 10
+    if args.strip():
+        try:
+            count = max(1, min(int(args.strip().split()[0]), 50))
+        except ValueError:
+            return "Usage: `/git log [n]` — e.g. `/git log 5` (default: 10, max: 50)"
+    code, out, err = await _run_git(
+        workspace, "log", "--oneline", "--decorate", "-n", str(count)
+    )
+    return _format_git_output(code, out, err)
+
+
+async def _git_add(workspace: Path, args: str) -> str:
+    paths = args.strip().split()
+    if not paths:
+        return "Usage: `/git add <path> [<path> ...]`"
+
+    resolved: list[str] = []
+    for raw in paths:
+        try:
+            target = require_path_within(raw, workspace)
+        except Exception as exc:
+            return f"Invalid path `{raw}`: {exc}"
+        # Store the repo-relative path for git add.
+        try:
+            rel = target.relative_to(workspace)
+        except ValueError:
+            return f"Path `{raw}` is outside the workspace."
+        resolved.append(str(rel))
+
+    code, out, err = await _run_git(workspace, "add", "--", *resolved)
+    if code == 0:
+        return f"Staged {len(resolved)} path(s).\n\n" + _format_git_output(code, out, err)
+    return _format_git_output(code, out, err)
+
+
+async def _git_commit(workspace: Path, args: str) -> str:
+    message = args.strip()
+    if not message:
+        return "Usage: `/git commit <message>`"
+    code, out, err = await _run_git(workspace, "commit", "-m", message)
+    return _format_git_output(code, out, err)
+
+
+async def _git_pull(workspace: Path, args: str) -> str:
+    if args.strip():
+        return "Usage: `/git pull`"
+    code, out, err = await _run_git(workspace, "pull")
+    return _format_git_output(code, out, err)
+
+
+async def _git_push(workspace: Path, args: str) -> str:
+    if args.strip():
+        return "Usage: `/git push`"
+    code, out, err = await _run_git(workspace, "push")
+    return _format_git_output(code, out, err)
+
+
+async def _git_sync(workspace: Path, args: str) -> str:
+    """Pull, commit all changes, and push."""
+    message = args.strip() or "sync: update from nanobot"
+
+    lines: list[str] = []
+
+    code, out, err = await _run_git(workspace, "pull")
+    lines.append("## pull")
+    lines.append(_format_git_output(code, out, err))
+    if code != 0:
+        return "\n\n".join(lines)
+
+    code, out, err = await _run_git(workspace, "add", "-A")
+    if code != 0:
+        lines.append("## add -A")
+        lines.append(_format_git_output(code, out, err))
+        return "\n\n".join(lines)
+
+    code, out, err = await _run_git(workspace, "status", "--porcelain")
+    has_changes = code == 0 and out.strip()
+
+    if has_changes:
+        code, out, err = await _run_git(workspace, "commit", "-m", message)
+        lines.append("## commit")
+        lines.append(_format_git_output(code, out, err))
+        if code != 0:
+            return "\n\n".join(lines)
+    else:
+        lines.append("## commit\nNothing to commit.")
+
+    code, out, err = await _run_git(workspace, "push")
+    lines.append("## push")
+    lines.append(_format_git_output(code, out, err))
+
+    return "\n\n".join(lines)
+
+
 def build_help_text() -> str:
     """Build canonical help text shared across channels."""
     lines = ["🐈 nanobot commands:"]
@@ -649,3 +898,5 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.exact("/help", cmd_help)
     router.exact("/pairing", cmd_pairing)
     router.prefix("/pairing ", cmd_pairing)
+    router.exact("/git", cmd_git)
+    router.prefix("/git ", cmd_git)
