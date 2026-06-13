@@ -660,7 +660,7 @@ async def cmd_git(ctx: CommandContext) -> OutboundMessage:
     subcommand = parts[0].lower()
     sub_args = parts[1] if len(parts) > 1 else ""
 
-    handlers: dict[str, Callable[[str], Awaitable[str]]] = {
+    handlers: dict[str, Callable[[Path, str], Awaitable[str]]] = {
         "status": _git_status,
         "diff": _git_diff,
         "log": _git_log,
@@ -684,7 +684,7 @@ async def cmd_git(ctx: CommandContext) -> OutboundMessage:
         )
 
     try:
-        content = await handler(sub_args)
+        content = await handler(workspace, sub_args)
     except Exception as exc:
         content = f"Git command failed: {exc}"
 
