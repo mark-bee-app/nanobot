@@ -6,7 +6,6 @@ import asyncio
 import os
 import sys
 import time
-from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +13,6 @@ from pathlib import Path
 from nanobot import __version__
 from nanobot.bus.events import OutboundMessage
 from nanobot.command.router import CommandContext, CommandRouter
-from nanobot.security.workspace_policy import require_path_within
 from nanobot.utils.helpers import build_status_content
 from nanobot.utils.restart import set_restart_notice_to_env
 
@@ -116,10 +114,10 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
     ),
     BuiltinCommandSpec(
         "/git",
-        "Git operations",
-        "Run git commands in the workspace: status, diff, log, add, commit, pull, push, sync.",
+        "Git sync",
+        "Commit working-tree changes, pull from remote, then push to remote.",
         "git-branch",
-        "[status|diff|log|add|commit|pull|push|sync|help]",
+        "[message|status|log|help]",
     ),
 )
 
@@ -628,17 +626,12 @@ async def cmd_help(ctx: CommandContext) -> OutboundMessage:
 
 
 async def cmd_git(ctx: CommandContext) -> OutboundMessage:
-    """Run a whitelist of git commands inside the configured workspace.
+    """Custom git workflow: commit working-tree changes, pull, then push.
 
     Usage:
+        /git [message]
         /git status
-        /git diff
         /git log [n]
-        /git add <path> [<path> ...]
-        /git commit <message>
-        /git pull
-        /git push
-        /git sync [message]
         /git help
     """
     msg = ctx.msg
@@ -660,31 +653,17 @@ async def cmd_git(ctx: CommandContext) -> OutboundMessage:
     subcommand = parts[0].lower()
     sub_args = parts[1] if len(parts) > 1 else ""
 
-    handlers: dict[str, Callable[[Path, str], Awaitable[str]]] = {
-        "status": _git_status,
-        "diff": _git_diff,
-        "log": _git_log,
-        "add": _git_add,
-        "commit": _git_commit,
-        "pull": _git_pull,
-        "push": _git_push,
-        "sync": _git_sync,
-    }
-
-    handler = handlers.get(subcommand)
-    if handler is None:
-        return OutboundMessage(
-            channel=msg.channel,
-            chat_id=msg.chat_id,
-            content=(
-                f"Unknown git subcommand `{subcommand}`.\n\n"
-                f"{_build_git_help_text()}"
-            ),
-            metadata=metadata,
-        )
-
     try:
-        content = await handler(workspace, sub_args)
+        if subcommand == "status":
+            if sub_args.strip():
+                content = "Usage: `/git status`"
+            else:
+                content = await _git_status(workspace)
+        elif subcommand == "log":
+            content = await _git_log(workspace, sub_args)
+        else:
+            # Any other input is treated as a commit message for the sync workflow.
+            content = await _git_sync_workflow(workspace, raw_args)
     except Exception as exc:
         content = f"Git command failed: {exc}"
 
@@ -698,15 +677,12 @@ async def cmd_git(ctx: CommandContext) -> OutboundMessage:
 
 def _build_git_help_text() -> str:
     return (
-        "## Git commands\n"
+        "## Git sync\n"
+        "A single high-level command that commits working-tree changes, "
+        "pulls from the remote, and pushes back.\n\n"
+        "- `/git [message]` — stage and commit all changes, pull, then push\n"
         "- `/git status` — show working tree status\n"
-        "- `/git diff` — show unstaged changes\n"
         "- `/git log [n]` — show last n commits (default 10, max 50)\n"
-        "- `/git add <path> [<path> ...]` — stage files or directories\n"
-        "- `/git commit <message>` — commit staged changes\n"
-        "- `/git pull` — pull from upstream\n"
-        "- `/git push` — push to upstream\n"
-        "- `/git sync [message]` — pull, commit all changes, and push\n"
         "- `/git help` — show this help"
     )
 
@@ -752,21 +728,10 @@ def _format_git_output(exit_code: int, stdout: str, stderr: str) -> str:
     return "\n\n".join(parts)
 
 
-async def _git_status(workspace: Path, args: str) -> str:
-    if args.strip():
-        return "Usage: `/git status`"
+async def _git_status(workspace: Path) -> str:
     code, out, err = await _run_git(workspace, "status", "--short", "--branch")
     if code == 0 and not out.strip() and not err.strip():
         return "Working tree clean."
-    return _format_git_output(code, out, err)
-
-
-async def _git_diff(workspace: Path, args: str) -> str:
-    if args.strip():
-        return "Usage: `/git diff`"
-    code, out, err = await _run_git(workspace, "diff")
-    if code == 0 and not out.strip():
-        return "No unstaged changes."
     return _format_git_output(code, out, err)
 
 
@@ -783,82 +748,64 @@ async def _git_log(workspace: Path, args: str) -> str:
     return _format_git_output(code, out, err)
 
 
-async def _git_add(workspace: Path, args: str) -> str:
-    paths = args.strip().split()
-    if not paths:
-        return "Usage: `/git add <path> [<path> ...]`"
+async def _git_sync_workflow(workspace: Path, message: str) -> str:
+    """Stage and commit working-tree changes, pull from remote, then push.
 
-    resolved: list[str] = []
-    for raw in paths:
-        try:
-            target = require_path_within(raw, workspace)
-        except Exception as exc:
-            return f"Invalid path `{raw}`: {exc}"
-        # Store the repo-relative path for git add.
-        try:
-            rel = target.relative_to(workspace)
-        except ValueError:
-            return f"Path `{raw}` is outside the workspace."
-        resolved.append(str(rel))
-
-    code, out, err = await _run_git(workspace, "add", "--", *resolved)
-    if code == 0:
-        return f"Staged {len(resolved)} path(s).\n\n" + _format_git_output(code, out, err)
-    return _format_git_output(code, out, err)
-
-
-async def _git_commit(workspace: Path, args: str) -> str:
-    message = args.strip()
-    if not message:
-        return "Usage: `/git commit <message>`"
-    code, out, err = await _run_git(workspace, "commit", "-m", message)
-    return _format_git_output(code, out, err)
-
-
-async def _git_pull(workspace: Path, args: str) -> str:
-    if args.strip():
-        return "Usage: `/git pull`"
-    code, out, err = await _run_git(workspace, "pull")
-    return _format_git_output(code, out, err)
-
-
-async def _git_push(workspace: Path, args: str) -> str:
-    if args.strip():
-        return "Usage: `/git push`"
-    code, out, err = await _run_git(workspace, "push")
-    return _format_git_output(code, out, err)
-
-
-async def _git_sync(workspace: Path, args: str) -> str:
-    """Pull, commit all changes, and push."""
-    message = args.strip() or "sync: update from nanobot"
-
+    The workflow follows the order requested by the user: commit, pull, push.
+    If the pull introduces merge conflicts, the push step is skipped and the
+    user is asked to resolve the conflicts first.
+    """
+    message = message.strip() or "sync: update from nanobot"
     lines: list[str] = []
 
-    code, out, err = await _run_git(workspace, "pull")
-    lines.append("## pull")
-    lines.append(_format_git_output(code, out, err))
+    # 1. Detect working-tree changes.
+    code, out, err = await _run_git(workspace, "status", "--porcelain")
     if code != 0:
-        return "\n\n".join(lines)
-
-    code, out, err = await _run_git(workspace, "add", "-A")
-    if code != 0:
-        lines.append("## add -A")
+        lines.append("## check working tree")
         lines.append(_format_git_output(code, out, err))
         return "\n\n".join(lines)
 
-    code, out, err = await _run_git(workspace, "status", "--porcelain")
-    has_changes = code == 0 and out.strip()
+    has_changes = bool(out.strip())
 
+    # 2. Commit working-tree changes.
     if has_changes:
+        code, out, err = await _run_git(workspace, "add", "-A")
+        if code != 0:
+            lines.append("## stage changes")
+            lines.append(_format_git_output(code, out, err))
+            return "\n\n".join(lines)
+
         code, out, err = await _run_git(workspace, "commit", "-m", message)
         lines.append("## commit")
         lines.append(_format_git_output(code, out, err))
         if code != 0:
             return "\n\n".join(lines)
     else:
-        lines.append("## commit\nNothing to commit.")
+        lines.append("## commit\nNo working-tree changes to commit.")
 
+    # 3. Pull from remote.
+    code, out, err = await _run_git(workspace, "pull")
+    lines.append("## pull")
+    lines.append(_format_git_output(code, out, err))
+    if code != 0:
+        return "\n\n".join(lines)
+
+    # 4. Check for merge conflicts introduced by the pull.
+    code, out, err = await _run_git(workspace, "status", "--porcelain")
+    if code == 0 and out.strip():
+        conflict_markers = {"UU", "AA", "DD", "AU", "UA", "DU", "UD"}
+        has_conflicts = any(
+            len(line) >= 2 and line[:2] in conflict_markers
+            for line in out.splitlines()
+        )
+        if has_conflicts:
+            lines.append(
+                "## merge check\n"
+                "Merge conflicts detected after pull. Resolve them before pushing."
+            )
+            return "\n\n".join(lines)
+
+    # 5. Push to remote.
     code, out, err = await _run_git(workspace, "push")
     lines.append("## push")
     lines.append(_format_git_output(code, out, err))
