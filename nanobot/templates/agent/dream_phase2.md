@@ -3,7 +3,6 @@ Update memory files based on the analysis below.
 - [FILE-REMOVE] entries: delete the corresponding content from memory files
 
 ## File paths (relative to workspace root)
-- SOUL.md
 - USER.md
 - memory/MEMORY.md
 

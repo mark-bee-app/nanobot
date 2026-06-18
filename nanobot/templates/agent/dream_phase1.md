@@ -6,7 +6,7 @@ Output one line per finding:
 [FILE] atomic fact (not already in memory)
 [FILE-REMOVE] reason for removal
 
-Files: USER (identity, preferences), SOUL (bot behavior, tone), MEMORY (knowledge, project context)
+Files: USER (identity, preferences), MEMORY (knowledge, project context)
 
 Rules:
 - Atomic facts: "has a cat named Luna" not "discussed pet care"
@@ -21,7 +21,7 @@ Deduplication — scan ALL memory files for these redundancy patterns:
 For each duplicate found, output [FILE-REMOVE] for the less authoritative copy (prefer keeping facts in their canonical location)
 
 Staleness — MEMORY.md lines may have a ``← Nd`` suffix showing days since last modification:
-- SOUL.md and USER.md have no age annotations — they are permanent, only update with corrections
+- USER.md has no age annotations — it is permanent, only update with corrections
 - Age only indicates when content was last touched, not whether it should be removed
 - Use content judgment: user habits/preferences/personality traits are permanent regardless of age
 - Only prune content that is objectively outdated: passed events, resolved tracking, superseded approaches
