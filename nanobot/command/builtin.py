@@ -16,6 +16,8 @@ from nanobot.command.router import CommandContext, CommandRouter
 from nanobot.utils.helpers import build_status_content
 from nanobot.utils.restart import set_restart_notice_to_env
 
+_READ_MAX_SIZE_BYTES = 100 * 1024  # 100 KB
+
 
 @dataclass(frozen=True)
 class BuiltinCommandSpec:
@@ -118,6 +120,13 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "Commit working-tree changes, pull from remote, then push to remote.",
         "git-branch",
         "[message|status|log|help]",
+    ),
+    BuiltinCommandSpec(
+        "/read",
+        "Read Markdown file",
+        "Read a Markdown file from the workspace by name or absolute path.",
+        "file-text",
+        "<file-name>|<absolute-path>",
     ),
 )
 
@@ -813,6 +822,157 @@ async def _git_sync_workflow(workspace: Path, message: str) -> str:
     return "\n\n".join(lines)
 
 
+def _is_within_workspace(path: Path, workspace: Path) -> bool:
+    """Return True if *path* is inside *workspace*.
+
+    Uses Path.is_relative_to (Python 3.9+). Both paths are resolved first.
+    """
+    try:
+        return path.resolve().is_relative_to(workspace.resolve())
+    except (OSError, ValueError):
+        return False
+
+
+def _find_md_files(workspace: Path, name: str) -> list[Path]:
+    """Return .md files under *workspace* matching *name* case-insensitively.
+
+    Matches against the full file name (e.g. "note.md") or the stem (e.g. "note").
+    """
+    target = name.lower()
+    matches: list[Path] = []
+    if not workspace.exists():
+        return matches
+    for path in workspace.rglob("*.md"):
+        if path.name.lower() == target or path.stem.lower() == target:
+            matches.append(path)
+    return matches
+
+
+def _format_read_result(path: Path, content: str) -> str:
+    lines = [f"**{path.resolve()}**", "", content]
+    return "\n".join(lines)
+
+
+def _format_multiple_matches(matches: list[Path]) -> str:
+    lines = ["Multiple .md files match that name:", ""]
+    for idx, path in enumerate(matches, start=1):
+        lines.append(f"{idx}. `{path.resolve()}`")
+    lines.extend(["", "Run `/read <absolute-path>` to read the one you want."])
+    return "\n".join(lines)
+
+
+async def cmd_read(ctx: CommandContext) -> OutboundMessage:
+    """Read a Markdown file from the workspace.
+
+    Usage:
+        /read <file-name>       — search workspace for a .md file by name
+        /read <absolute-path>   — read the specified .md file directly
+    """
+    msg = ctx.msg
+    loop = ctx.loop
+    metadata = {**dict(msg.metadata or {}), "render_as": "text"}
+    arg = ctx.args.strip()
+
+    if not arg:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content="Usage:\n- `/read <file-name>`\n- `/read <absolute-path>`",
+            metadata=metadata,
+        )
+
+    workspace = Path(loop.workspace).expanduser().resolve(strict=False)
+
+    # Absolute path branch
+    if arg.startswith("/"):
+        path = Path(arg).expanduser().resolve(strict=False)
+        if not _is_within_workspace(path, workspace):
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="Error: absolute path must be inside the workspace.",
+                metadata=metadata,
+            )
+        if not path.suffix.lower() == ".md":
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="Error: only .md files can be read.",
+                metadata=metadata,
+            )
+        if not path.is_file():
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=f"Error: file not found: `{path}`",
+                metadata=metadata,
+            )
+        if path.stat().st_size > _READ_MAX_SIZE_BYTES:
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=f"Error: file `{path}` is too large (>100 KB).",
+                metadata=metadata,
+            )
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=f"Error: could not read `{path}`: {exc}",
+                metadata=metadata,
+            )
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=_format_read_result(path, content),
+            metadata=metadata,
+        )
+
+    # Search-by-name branch
+    matches = _find_md_files(workspace, arg)
+    if not matches:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=f"No matching .md file found for `{arg}` in workspace.",
+            metadata=metadata,
+        )
+
+    if len(matches) > 1:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=_format_multiple_matches(matches),
+            metadata=metadata,
+        )
+
+    path = matches[0]
+    if path.stat().st_size > _READ_MAX_SIZE_BYTES:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=f"Error: file `{path}` is too large (>100 KB).",
+            metadata=metadata,
+        )
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=f"Error: could not read `{path}`: {exc}",
+            metadata=metadata,
+        )
+    return OutboundMessage(
+        channel=msg.channel,
+        chat_id=msg.chat_id,
+        content=_format_read_result(path, content),
+        metadata=metadata,
+    )
+
+
 def build_help_text() -> str:
     """Build canonical help text shared across channels."""
     lines = ["🐈 nanobot commands:"]
@@ -847,3 +1007,5 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.prefix("/pairing ", cmd_pairing)
     router.exact("/git", cmd_git)
     router.prefix("/git ", cmd_git)
+    router.exact("/read", cmd_read)
+    router.prefix("/read ", cmd_read)
