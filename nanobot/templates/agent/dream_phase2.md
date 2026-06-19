@@ -2,6 +2,10 @@ Update memory files based on the analysis below.
 - [FILE] entries: add the described content to the appropriate file
 - [FILE-REMOVE] entries: delete the corresponding content from memory files
 
+## NO-OP Mode
+
+Dream is currently in no-op mode. Do NOT call any tools. Simply stop and end the turn.
+
 ## File paths (relative to workspace root)
 - USER.md
 - memory/MEMORY.md

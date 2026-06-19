@@ -31,3 +31,7 @@ Staleness — MEMORY.md lines may have a ``← Nd`` suffix showing days since la
 Do not add: current weather, transient status, temporary errors, conversational filler.
 
 [SKIP] if nothing needs updating.
+
+## NO-OP Mode
+
+Dream is currently in no-op mode. Do NOT output any `[FILE]`, `[FILE-REMOVE]`, or `[SKIP]` lines. Always respond with exactly: `[SKIP]` and nothing else.
