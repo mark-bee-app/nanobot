@@ -484,8 +484,6 @@ class MemoryStore:
 
         Returns ``(prompt, last_cursor)`` or ``None`` if nothing to process.
         """
-        from nanobot.agent.skills import BUILTIN_SKILLS_DIR
-
         last_cursor = self.get_last_dream_cursor()
         entries = self.read_unprocessed_history(since_cursor=last_cursor)
         if not entries:
@@ -496,54 +494,20 @@ class MemoryStore:
             f"[{e['timestamp']}] {truncate_text(e['content'], 500)}"
             for e in batch
         )
-        skill_creator_path = str(BUILTIN_SKILLS_DIR / "skill-creator" / "SKILL.md")
-        template = render_template(
-            "agent/dream.md", strip=True, skill_creator_path=skill_creator_path,
-        )
+        template = render_template("agent/dream.md", strip=True)
         prompt = f"{template}\n\n## Conversation History\n{history_text}"
         return (prompt, batch[-1]["cursor"])
 
     def build_dream_tools(self):
-        """Build the restricted tool registry used by Dream runs."""
-        from nanobot.agent.skills import BUILTIN_SKILLS_DIR
-        from nanobot.agent.tools.apply_patch import ApplyPatchTool
-        from nanobot.agent.tools.file_state import FileStates
-        from nanobot.agent.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
+        """Build the tool registry used by Dream runs.
+
+        Dream is intentionally run tool-free so it cannot modify files or create
+        skills. It only analyzes the provided conversation history and returns a
+        text summary.
+        """
         from nanobot.agent.tools.registry import ToolRegistry
 
-        tools = ToolRegistry()
-        file_states = FileStates()
-        workspace = self.workspace
-        skills_dir = workspace / "skills"
-        skills_dir.mkdir(parents=True, exist_ok=True)
-
-        extra_read = [BUILTIN_SKILLS_DIR] if BUILTIN_SKILLS_DIR.exists() else None
-        editable_files = [self.memory_file, self.soul_file, self.user_file]
-
-        tools.register(ReadFileTool(
-            workspace=workspace,
-            allowed_dir=workspace,
-            extra_read_allowed_dirs=extra_read,
-            file_states=file_states,
-        ))
-        tools.register(EditFileTool(
-            workspace=workspace,
-            allowed_dir=skills_dir,
-            extra_write_allowed_files=editable_files,
-            file_states=file_states,
-        ))
-        tools.register(ApplyPatchTool(
-            workspace=workspace,
-            allowed_dir=skills_dir,
-            extra_write_allowed_files=editable_files,
-            file_states=file_states,
-        ))
-        tools.register(WriteFileTool(
-            workspace=workspace,
-            allowed_dir=skills_dir,
-            file_states=file_states,
-        ))
-        return tools
+        return ToolRegistry()
 
     @staticmethod
     def dream_run_completed(resp: object | None) -> bool:
