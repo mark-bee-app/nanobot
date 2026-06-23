@@ -8,10 +8,13 @@ import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 
 from nanobot import __version__
 from nanobot.bus.events import OutboundMessage
 from nanobot.command.router import CommandContext, CommandRouter
+from nanobot.security.workspace_policy import is_path_within
 from nanobot.utils.helpers import build_status_content
 from nanobot.utils.restart import set_restart_notice_to_env
 
@@ -116,6 +119,19 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "List, approve, deny or revoke pairing requests.",
         "shield",
         "[list|approve <code>|deny <code>|revoke <user_id>]",
+    ),
+    BuiltinCommandSpec(
+        "/git",
+        "Sync workspace",
+        "Commit local changes, pull, and push the current branch.",
+        "git-branch",
+    ),
+    BuiltinCommandSpec(
+        "/read",
+        "Read markdown file",
+        "Read the contents of a markdown file in the workspace.",
+        "file-text",
+        "<file-name-or-relative-path.md>",
     ),
 )
 
@@ -696,6 +712,220 @@ async def cmd_skill(ctx: CommandContext) -> OutboundMessage:
         metadata=dict(ctx.msg.metadata or {}),
     )
 
+
+async def _git_repo_root() -> Path | None:
+    """Return the Git repository root for the current working directory."""
+    try:
+        rc, stdout, _ = await _run_git_command(["rev-parse", "--show-toplevel"], Path.cwd())
+        if rc != 0:
+            return None
+        return Path(stdout.strip())
+    except Exception:
+        return None
+
+
+async def _run_git_command(args: list[str], cwd: Path) -> tuple[int, str, str]:
+    """Run a git command with editor disabled for non-interactive use."""
+    env = os.environ.copy()
+    env["GIT_EDITOR"] = "true"
+    env["EDITOR"] = "true"
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    stdout, stderr = await proc.communicate()
+    return (
+        proc.returncode,
+        stdout.decode("utf-8", errors="replace"),
+        stderr.decode("utf-8", errors="replace"),
+    )
+
+
+def _build_git_commit_message() -> str:
+    """Build a default commit message for /git."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    return f"chore: sync workspace at {now}"
+
+
+async def cmd_git(ctx: CommandContext) -> OutboundMessage:
+    """Commit local changes, pull, and push the current branch."""
+    msg = ctx.msg
+    repo_root = await _git_repo_root()
+    if repo_root is None:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content="Not inside a Git repository.",
+            metadata={**dict(msg.metadata or {}), "render_as": "text"},
+        )
+
+    lines: list[str] = []
+
+    rc, stdout, stderr = await _run_git_command(["status", "--porcelain"], repo_root)
+    if rc != 0:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=f"`git status` failed:\n```\n{stderr.strip()}\n```",
+            metadata={**dict(msg.metadata or {}), "render_as": "text"},
+        )
+
+    if stdout.strip():
+        commit_msg = _build_git_commit_message()
+        rc, _, stderr = await _run_git_command(["add", "-A"], repo_root)
+        if rc != 0:
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=f"`git add` failed:\n```\n{stderr.strip()}\n```",
+                metadata={**dict(msg.metadata or {}), "render_as": "text"},
+            )
+        rc, _, stderr = await _run_git_command(["commit", "-m", commit_msg], repo_root)
+        if rc != 0:
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=f"`git commit` failed:\n```\n{stderr.strip()}\n```",
+                metadata={**dict(msg.metadata or {}), "render_as": "text"},
+            )
+        lines.append(f"Committed local changes: `{commit_msg}`")
+    else:
+        lines.append("No local changes to commit.")
+
+    rc, pull_out, pull_err = await _run_git_command(["pull", "--no-edit"], repo_root)
+    if rc != 0:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=(
+                "\n".join(lines)
+                + f"\n\n`git pull` failed:\n```\n{(pull_out + pull_err).strip()}\n```"
+            ),
+            metadata={**dict(msg.metadata or {}), "render_as": "text"},
+        )
+    lines.append("Pulled latest changes.")
+    pull_summary = (pull_out + pull_err).strip()
+    if pull_summary:
+        lines.append(f"```\n{pull_summary}\n```")
+
+    rc, push_out, push_err = await _run_git_command(["push"], repo_root)
+    if rc != 0:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=(
+                "\n".join(lines)
+                + f"\n\n`git push` failed:\n```\n{(push_out + push_err).strip()}\n```"
+            ),
+            metadata={**dict(msg.metadata or {}), "render_as": "text"},
+        )
+    lines.append("Pushed local commits.")
+    push_summary = (push_out + push_err).strip()
+    if push_summary:
+        lines.append(f"```\n{push_summary}\n```")
+
+    return OutboundMessage(
+        channel=msg.channel,
+        chat_id=msg.chat_id,
+        content="\n".join(lines),
+        metadata={**dict(msg.metadata or {}), "render_as": "text"},
+    )
+
+
+async def cmd_read(ctx: CommandContext) -> OutboundMessage:
+    """Read a markdown file from the workspace by name or relative path."""
+    msg = ctx.msg
+    metadata = {**dict(msg.metadata or {}), "render_as": "text"}
+    name = ctx.args.strip()
+    if not name:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content="Usage: `/read <file-name-or-relative-path.md>`",
+            metadata=metadata,
+        )
+
+    repo_root = await _git_repo_root()
+    if repo_root is None:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content="Not inside a Git repository.",
+            metadata=metadata,
+        )
+
+    if "/" in name or "\\" in name:
+        target = (repo_root / name).resolve()
+        if not is_path_within(target, repo_root):
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="Only files within the workspace are allowed.",
+                metadata=metadata,
+            )
+        if target.suffix.lower() != ".md":
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="Only markdown (`.md`) files can be read.",
+                metadata=metadata,
+            )
+        if not target.is_file():
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=f"File not found: `{name}`",
+                metadata=metadata,
+            )
+        content = target.read_text(encoding="utf-8", errors="replace")
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=content,
+            metadata=metadata,
+        )
+
+    candidates: list[Path] = []
+    name_lower = name.lower()
+    name_with_md = name_lower if name_lower.endswith(".md") else f"{name_lower}.md"
+    for path in repo_root.rglob("*.md"):
+        if path.name.lower() == name_with_md:
+            candidates.append(path)
+    candidates.sort()
+
+    if not candidates:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=f"No markdown file named `{name}` found in the workspace.",
+            metadata=metadata,
+        )
+
+    if len(candidates) == 1:
+        content = candidates[0].read_text(encoding="utf-8", errors="replace")
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=content,
+            metadata=metadata,
+        )
+
+    lines = [f"Multiple markdown files match `{name}`:", ""]
+    for path in candidates:
+        lines.append(f"- `{path.relative_to(repo_root)}`")
+    lines.extend(["", "Use `/read <relative-path.md>` to read a specific one."])
+    return OutboundMessage(
+        channel=msg.channel,
+        chat_id=msg.chat_id,
+        content="\n".join(lines),
+        metadata=metadata,
+    )
+
+
 async def cmd_help(ctx: CommandContext) -> OutboundMessage:
     """Return available slash commands."""
     return OutboundMessage(
@@ -736,6 +966,9 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.exact("/dream-restore", cmd_dream_restore)
     router.prefix("/dream-restore ", cmd_dream_restore)
     router.exact("/skill", cmd_skill)
+    router.exact("/git", cmd_git)
+    router.exact("/read", cmd_read)
+    router.prefix("/read ", cmd_read)
     router.exact("/help", cmd_help)
     router.exact("/pairing", cmd_pairing)
     router.prefix("/pairing ", cmd_pairing)
