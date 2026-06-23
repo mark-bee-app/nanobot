@@ -54,7 +54,7 @@ class DreamConfig(Base):
 
     _HOUR_MS = 3_600_000
 
-    enabled: bool = True  # Register the periodic Dream consolidation job on startup
+    enabled: bool = False  # Dream memory consolidation is disabled by default
     interval_h: int = Field(default=2, ge=1)  # Every 2 hours by default
     cron: str | None = Field(default=None, exclude=True)  # Legacy cron expression override
     model_override: str | None = Field(
