@@ -9,8 +9,8 @@ from nanobot.agent.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.command.builtin import (
-    builtin_command_palette,
     build_help_text,
+    builtin_command_palette,
     cmd_git,
     register_builtin_commands,
 )
@@ -74,6 +74,20 @@ async def _init_git_repo(path: Path) -> None:
     await _git(path, ["config", "user.name", "Test User"])
 
 
+async def _init_git_repo_with_remote(path: Path, tmp_path: Path) -> Path:
+    """Init a repo with a local bare remote set as upstream."""
+
+    bare = tmp_path / "remote.git"
+    bare.mkdir()
+    await _git(bare, ["init", "--bare"])
+
+    await _git(path, ["init"])
+    await _git(path, ["config", "user.email", "test@example.com"])
+    await _git(path, ["config", "user.name", "Test User"])
+    await _git(path, ["remote", "add", "origin", str(bare)])
+    return bare
+
+
 @pytest.mark.asyncio
 async def test_git_command_requires_git_repository(tmp_path: Path) -> None:
     loop = _make_loop(tmp_path)
@@ -84,12 +98,15 @@ async def test_git_command_requires_git_repository(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_git_command_no_changes_pulls_and_pushes(tmp_path: Path) -> None:
-    await _init_git_repo(tmp_path)
-    (tmp_path / "README.md").write_text("# repo", encoding="utf-8")
-    await _git(tmp_path, ["add", "-A"])
-    await _git(tmp_path, ["commit", "-m", "initial"])
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    await _init_git_repo_with_remote(repo, tmp_path)
+    (repo / "README.md").write_text("# repo", encoding="utf-8")
+    await _git(repo, ["add", "-A"])
+    await _git(repo, ["commit", "-m", "initial"])
+    await _git(repo, ["push", "-u", "origin", "HEAD"])
 
-    loop = _make_loop(tmp_path)
+    loop = _make_loop(repo)
     out = await cmd_git(_ctx(loop, "/git"))
 
     assert out is not None
@@ -100,14 +117,17 @@ async def test_git_command_no_changes_pulls_and_pushes(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_git_command_commits_local_changes(tmp_path: Path) -> None:
-    await _init_git_repo(tmp_path)
-    (tmp_path / "README.md").write_text("# repo", encoding="utf-8")
-    await _git(tmp_path, ["add", "-A"])
-    await _git(tmp_path, ["commit", "-m", "initial"])
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    await _init_git_repo_with_remote(repo, tmp_path)
+    (repo / "README.md").write_text("# repo", encoding="utf-8")
+    await _git(repo, ["add", "-A"])
+    await _git(repo, ["commit", "-m", "initial"])
+    await _git(repo, ["push", "-u", "origin", "HEAD"])
 
-    (tmp_path / "new.md").write_text("new content", encoding="utf-8")
+    (repo / "new.md").write_text("new content", encoding="utf-8")
 
-    loop = _make_loop(tmp_path)
+    loop = _make_loop(repo)
     out = await cmd_git(_ctx(loop, "/git"))
 
     assert out is not None
@@ -116,7 +136,7 @@ async def test_git_command_commits_local_changes(tmp_path: Path) -> None:
     assert "Pulled latest changes" in out.content
     assert "Pushed local commits" in out.content
 
-    rc, stdout, _ = await _git(tmp_path, ["status", "--porcelain"])
+    rc, stdout, _ = await _git(repo, ["status", "--porcelain"])
     assert rc == 0
     assert stdout.strip() == ""
 
@@ -167,14 +187,17 @@ def test_git_command_in_help_and_palette() -> None:
 
 @pytest.mark.asyncio
 async def test_git_command_registered_on_router(tmp_path: Path) -> None:
-    await _init_git_repo(tmp_path)
-    (tmp_path / "README.md").write_text("# repo", encoding="utf-8")
-    await _git(tmp_path, ["add", "-A"])
-    await _git(tmp_path, ["commit", "-m", "initial"])
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    await _init_git_repo_with_remote(repo, tmp_path)
+    (repo / "README.md").write_text("# repo", encoding="utf-8")
+    await _git(repo, ["add", "-A"])
+    await _git(repo, ["commit", "-m", "initial"])
+    await _git(repo, ["push", "-u", "origin", "HEAD"])
 
     router = CommandRouter()
     register_builtin_commands(router)
-    loop = _make_loop(tmp_path)
+    loop = _make_loop(repo)
 
     out = await router.dispatch(_ctx(loop, "/git"))
     assert out is not None

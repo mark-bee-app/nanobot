@@ -9,8 +9,8 @@ from nanobot.agent.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.command.builtin import (
-    builtin_command_palette,
     build_help_text,
+    builtin_command_palette,
     cmd_read,
     register_builtin_commands,
 )
@@ -158,7 +158,7 @@ async def test_read_command_rejects_non_markdown_path(tmp_path: Path) -> None:
     (tmp_path / "secret.txt").write_text("secret", encoding="utf-8")
 
     loop = _make_loop(tmp_path)
-    out = await cmd_read(_ctx(loop, "/read secret.txt", args="secret.txt"))
+    out = await cmd_read(_ctx(loop, "/read ./secret.txt", args="./secret.txt"))
 
     assert out is not None
     assert "Only markdown" in out.content

@@ -713,10 +713,10 @@ async def cmd_skill(ctx: CommandContext) -> OutboundMessage:
     )
 
 
-async def _git_repo_root() -> Path | None:
-    """Return the Git repository root for the current working directory."""
+async def _git_repo_root(workspace: Path) -> Path | None:
+    """Return the Git repository root for the agent workspace."""
     try:
-        rc, stdout, _ = await _run_git_command(["rev-parse", "--show-toplevel"], Path.cwd())
+        rc, stdout, _ = await _run_git_command(["rev-parse", "--show-toplevel"], workspace)
         if rc != 0:
             return None
         return Path(stdout.strip())
@@ -754,7 +754,7 @@ def _build_git_commit_message() -> str:
 async def cmd_git(ctx: CommandContext) -> OutboundMessage:
     """Commit local changes, pull, and push the current branch."""
     msg = ctx.msg
-    repo_root = await _git_repo_root()
+    repo_root = await _git_repo_root(ctx.loop.workspace)
     if repo_root is None:
         return OutboundMessage(
             channel=msg.channel,
@@ -849,7 +849,7 @@ async def cmd_read(ctx: CommandContext) -> OutboundMessage:
             metadata=metadata,
         )
 
-    repo_root = await _git_repo_root()
+    repo_root = await _git_repo_root(ctx.loop.workspace)
     if repo_root is None:
         return OutboundMessage(
             channel=msg.channel,
