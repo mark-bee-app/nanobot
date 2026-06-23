@@ -1133,19 +1133,7 @@ def _run_gateway(
         console.print(f"[green]✓[/green] Health endpoint: http://{host}:{health_port}/health")
         async with server:
             await server.serve_forever()
-    # Register Dream system job (idempotent on restart)
-    from nanobot.cron.types import CronJob, CronPayload, CronSchedule
-    dream_cfg = config.agents.defaults.dream
-    if dream_cfg.enabled:
-        cron.register_system_job(CronJob(
-            id="dream",
-            name="dream",
-            schedule=dream_cfg.build_schedule(config.agents.defaults.timezone),
-            payload=CronPayload(kind="system_event"),
-        ))
-        console.print(f"[green]✓[/green] Dream: {dream_cfg.describe_schedule()}")
-    else:
-        console.print("[yellow]○[/yellow] Dream: disabled")
+    from nanobot.cron.types import CronPayload, CronSchedule
 
     # Register Heartbeat system job (idempotent on restart)
     if hb_cfg.enabled:
