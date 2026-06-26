@@ -115,18 +115,18 @@ class TestLoadBootstrapFiles:
         assert builder._load_bootstrap_files() == ""
 
     def test_agents_md(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("Be helpful.", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("Be helpful.", encoding="utf-8")
         builder = _builder(tmp_path)
         result = builder._load_bootstrap_files()
-        assert "## AGENTS.md" in result
+        assert "## NANOBOT.md" in result
         assert "Be helpful." in result
 
     def test_multiple_bootstrap_files(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("Rules.", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("Rules.", encoding="utf-8")
         (tmp_path / "SOUL.md").write_text("Soul.", encoding="utf-8")
         builder = _builder(tmp_path)
         result = builder._load_bootstrap_files()
-        assert "## AGENTS.md" in result
+        assert "## NANOBOT.md" in result
         assert "## SOUL.md" in result
         assert "Rules." in result
         assert "Soul." in result
@@ -147,7 +147,7 @@ class TestLoadBootstrapFiles:
         assert "workspace tool notes" not in result
 
     def test_utf8_content(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("用中文回复", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("用中文回复", encoding="utf-8")
         builder = _builder(tmp_path)
         result = builder._load_bootstrap_files()
         assert "用中文回复" in result
@@ -276,7 +276,7 @@ class TestBuildSystemPrompt:
         assert "workspace" in result.lower() or "python" in result.lower()
 
     def test_includes_bootstrap_files(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("Be helpful and concise.", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("Be helpful and concise.", encoding="utf-8")
         builder = _builder(tmp_path)
         result = builder.build_system_prompt()
         assert "Be helpful and concise." in result
@@ -288,7 +288,7 @@ class TestBuildSystemPrompt:
         assert "[Archived Context Summary]" in result
 
     def test_sections_separated_by_separator(self, tmp_path):
-        (tmp_path / "AGENTS.md").write_text("Rules.", encoding="utf-8")
+        (tmp_path / "NANOBOT.md").write_text("Rules.", encoding="utf-8")
         builder = _builder(tmp_path)
         result = builder.build_system_prompt(session_summary="Summary.")
         assert "\n\n---\n\n" in result
@@ -296,7 +296,7 @@ class TestBuildSystemPrompt:
     def test_no_bootstrap_no_summary(self, tmp_path):
         builder = _builder(tmp_path)
         result = builder.build_system_prompt()
-        assert "## AGENTS.md" not in result
+        assert "## NANOBOT.md" not in result
         assert "[Archived Context Summary]" not in result
 
 
